@@ -11,4 +11,6 @@ targets:
     release:
       app_id: com.squ.dawaiiapp
       apple_id: alaadev
-      team_id: A6X98BKQK8  
+      team_id: A6X98BKQK8
+      team_name: Aala Al Aamri
+  
