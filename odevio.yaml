@@ -7,7 +7,8 @@ targets:
     build:
       type: flutter
       config: release
+      flutter_version: 3.27.1
     release:
-      app_id: com.squ.dawaiiapp        # معرف التطبيق Bundle ID من pubspec.yaml
-      apple_id: alaadev                # Apple id اللي سجلتيه (الاسم الداخلي لحساب Apple)
-      team_id: YOUR_TEAM_ID            # لازم تحطي هنا الـ Team ID الخاص بحساب Apple Developer (مكون من 10 حروف)
+      app_id: com.squ.dawaiiapp
+      apple_id: alaadev
+      team_id: A6X98BKQK8  
