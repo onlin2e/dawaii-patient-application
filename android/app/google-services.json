@@ -1,0 +1,86 @@
+{
+  "project_info": {
+    "project_number": "987116845823",
+    "project_id": "med-ad",
+    "storage_bucket": "med-ad.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:987116845823:android:b10eb01a18bc949dfc6aca",
+        "android_client_info": {
+          "package_name": "com.alaa.dawaii"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzE1srlqVALYIcFhV2jdIGiSq0oMgR6mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:987116845823:android:73e63d6b9ce1fc43fc6aca",
+        "android_client_info": {
+          "package_name": "com.example.med_ad_admin"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzE1srlqVALYIcFhV2jdIGiSq0oMgR6mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:987116845823:android:3cbd7c72ce9c37d4fc6aca",
+        "android_client_info": {
+          "package_name": "com.example.med_ad_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzE1srlqVALYIcFhV2jdIGiSq0oMgR6mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:987116845823:android:4f9514efd9381b3dfc6aca",
+        "android_client_info": {
+          "package_name": "com.squ.dawaiiapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDzE1srlqVALYIcFhV2jdIGiSq0oMgR6mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

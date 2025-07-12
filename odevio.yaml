@@ -1,0 +1,13 @@
+project:
+  name: med_ad_app
+
+targets:
+  ios:
+    platform: ios
+    build:
+      type: flutter
+      config: release
+    release:
+      app_id: com.squ.dawaiiapp        # معرف التطبيق Bundle ID من pubspec.yaml
+      apple_id: alaadev                # Apple id اللي سجلتيه (الاسم الداخلي لحساب Apple)
+      team_id: YOUR_TEAM_ID            # لازم تحطي هنا الـ Team ID الخاص بحساب Apple Developer (مكون من 10 حروف)
