@@ -1,8 +1,0 @@
-app-key=DER3
-build-type=distribution
-flutter=3.27.1
-app-version=1.0.0
-build-number=4
-mode=release
-target=lib/main.dart
-tunnel-host=localhost

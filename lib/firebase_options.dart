@@ -52,7 +52,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyDzE1srlqVALYIcFhV2jdIGiSq0oMgR6mE',
-    appId: '1:987116845823:android:3cbd7c72ce9c37d4fc6aca',
+    appId: '1:987116845823:android:4f9514efd9381b3dfc6aca',
     messagingSenderId: '987116845823',
     projectId: 'med-ad',
     storageBucket: 'med-ad.firebasestorage.app',
@@ -60,11 +60,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyA3nN4Nq-DnGI6xlhvB8I6Vsn5sp5MKj3o',
-    appId: '1:987116845823:ios:5d71bc92db8b2bfffc6aca',
+    appId: '1:987116845823:ios:8bdfe709f188a6ccfc6aca',
     messagingSenderId: '987116845823',
     projectId: 'med-ad',
     storageBucket: 'med-ad.firebasestorage.app',
-    iosBundleId: 'com.example.medAdApp',
+    iosBundleId: 'com.squ.dawaiiapp',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
@@ -85,4 +85,5 @@ class DefaultFirebaseOptions {
     storageBucket: 'med-ad.firebasestorage.app',
     measurementId: 'G-DYMMJ61DNT',
   );
+
 }

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 class AboutusScreen extends StatefulWidget {
@@ -59,16 +60,16 @@ class _AboutusScreenState extends State<AboutusScreen> {
                   Text(
                     'نبذة عن تطبيق دوائي',
                     style: TextStyle(
-                      fontSize: 24,
+                      fontSize: screenWidth * 0.05,
                       fontWeight: FontWeight.bold,
                       color: const Color.fromARGB(255, 75, 12, 169),
                     ),
                   ),
                   SizedBox(height: 20),
                   Text(
-                    'دوائي هو تطبيق مبتكر يهدف إلى مساعدتك في إدارة أدويتك ومواعيد تناولها بكفاءة وسهولة. سواء كنت تتناول دواءً واحدًا أو عدة أدوية، فإن Med Ad يوفر لك الأدوات اللازمة لضمان عدم نسيان أي جرعة.',
+                    'دوائي هو تطبيق مبتكر يهدف إلى مساعدتك في إدارة أدويتك ومواعيد تناولها بكفاءة وسهولة. سواء كنت تتناول دواءً واحدًا أو عدة أدوية، فإن دوائي يوفر لك الأدوات اللازمة لضمان عدم نسيان أي جرعة.',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: screenWidth * 0.04,
                       color: Colors.grey[800],
                       height: 1.5,
                     ),
@@ -77,7 +78,7 @@ class _AboutusScreenState extends State<AboutusScreen> {
                   Text(
                     'الميزات الرئيسية:',
                     style: TextStyle(
-                      fontSize: 20,
+                      fontSize: screenWidth * 0.05,
                       fontWeight: FontWeight.bold,
                       color: const Color.fromARGB(255, 75, 12, 169),
                     ),
@@ -91,7 +92,7 @@ class _AboutusScreenState extends State<AboutusScreen> {
                   Text(
                     'هدفنا هو تسهيل حياتك وضمان حصولك على العلاج في الوقت المحدد، مما يساهم في تحسين صحتك ',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: screenWidth *0.04,
                       color: Colors.grey[800],
                       height: 1.5,
                     ),
@@ -101,7 +102,7 @@ class _AboutusScreenState extends State<AboutusScreen> {
                     child: Text(
                       'دوائي - صحتك في متناول يدك',
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: screenWidth * 0.04,
                         fontStyle: FontStyle.italic,
                         color: Colors.grey[600],
                       ),
@@ -128,6 +129,9 @@ class _AboutusScreenState extends State<AboutusScreen> {
   }
 
   Widget _buildFeatureItem(String feature) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.width;
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0),
       child: Row(
@@ -138,7 +142,7 @@ class _AboutusScreenState extends State<AboutusScreen> {
           Expanded(
             child: Text(
               feature,
-              style: TextStyle(fontSize: 16, color: Colors.grey[800]),
+              style: TextStyle(fontSize: screenWidth * 0.035 , color: Colors.grey[800]),
             ),
           ),
         ],

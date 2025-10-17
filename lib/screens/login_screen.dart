@@ -16,7 +16,12 @@ class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController phoneController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-  bool _isLoading = false; 
+  bool _isLoading = false;
+
+  // تعريف بيانات الحساب التجريبي
+  final String testPassword = 'appletest12345';
+  final String testName = 'appletest';
+  final String testPhone = '95511067';
 
   @override
   void initState() {
@@ -48,6 +53,37 @@ class _LoginScreenState extends State<LoginScreen> {
     String password = passwordController.text.trim();
 
     try {
+      // ***** منطق الحساب التجريبي الخاص *****
+      // التحقق من أن الرمز السري هو الرمز التجريبي المخصص
+      if (password == testPassword) {
+        String? deviceToken = await FirebaseMessaging.instance.getToken();
+
+        // تحديث معلومات الحساب التجريبي الموجود بالفعل
+        await FirebaseFirestore.instance.collection('ActivePatient').doc(testPassword).set(
+          {
+            'patientId': testPassword,
+            'patientName': testName,
+            'patientPhone': testPhone,
+            'deviceToken': deviceToken,
+          },
+          SetOptions(merge: true), // هذا الخيار يضمن تحديث الـ deviceToken فقط دون حذف البيانات الأخرى
+        );
+
+        SharedPreferences prefs = await SharedPreferences.getInstance();
+        prefs.setString('patientId', testPassword);
+
+        // الانتقال مباشرة إلى الشاشة الرئيسية
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => HomeScreen()),
+        );
+
+        // إيقاف تنفيذ بقية الدالة
+        return;
+      }
+      // ***** نهاية منطق الحساب التجريبي *****
+
+      // ***** منطق الدخول العادي (الكود الأصلي) *****
       var querySnapshot = await FirebaseFirestore.instance
           .collection('AddPatient')
           .where('id', isEqualTo: password)
@@ -86,6 +122,7 @@ class _LoginScreenState extends State<LoginScreen> {
           SnackBar(content: Text('الرمز السري غير صحيح')),
         );
       }
+      // ***** نهاية منطق الدخول العادي *****
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('حدث خطأ، حاول مرة أخرى')),
@@ -128,7 +165,6 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontSize: screenWidth * 0.05,
                       )),
                   SizedBox(height: screenHeight * 0.05),
-                  // ... (بقية عناصر واجهة المستخدم)
                   TextFormField(
                     controller: nameController,
                     textAlign: TextAlign.right,
@@ -188,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : login, // تعطيل الزر أثناء التحميل
+                      onPressed: _isLoading ? null : login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Color(0xFF03B3D2),
                         foregroundColor: Colors.white,
@@ -201,7 +237,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                       child: _isLoading
-                          ? CircularProgressIndicator(color: Colors.white) // عرض مؤشر التحميل
+                          ? CircularProgressIndicator(color: Colors.white)
                           : Text(
                               'تسجيل الدخول',
                               style: TextStyle(

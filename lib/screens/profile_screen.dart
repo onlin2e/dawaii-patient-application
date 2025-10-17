@@ -77,6 +77,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         setState(() {
           _isLoading = false;
           _patientName = 'مريض غير موجود';
+        
         });
       }
     } catch (e) {
@@ -184,7 +185,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     );
                   }),
                   _buildListTile(Icons.message, texts['whatsapp']!, onTap: () {
-                    _launchWhatsApp();
+                    _launchWhatsApp(context); // Pass context to show SnackBar
                   }),
                   _buildListTile(Icons.language, texts['change_language']!, onTap: _showLanguageDialog),
                 ],
@@ -254,16 +255,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // دالة لفتح تطبيق واتساب وبدء محادثة مباشرة
-  Future<void> _launchWhatsApp() async {
-    final phoneNumber = '96897927504'; // تم تحديث الرقم برقمك مع رمز البلد
-    final message = 'أهلا بك! كيف يمكنني مساعدتك؟'; // يمكنك إضافة رسالة أولية هنا إذا أردت
+  Future<void> _launchWhatsApp(BuildContext context) async {
+    final phoneNumber = '96879335705'; // Your WhatsApp number with country code
+    final message = 'مرحبا. ';
 
-    final whatsappUrl = Uri.parse('https://wa.me/$phoneNumber/?text=${Uri.encodeComponent(message)}');
 
-    if (await canLaunchUrl(whatsappUrl)) {
-      await launchUrl(whatsappUrl);
-    } else {
-      throw 'لا يمكن فتح $whatsappUrl';
+    final whatsappUrl = Uri.parse('whatsapp://send?phone=$phoneNumber&text=${Uri.encodeComponent(message)}');
+    final webWhatsappUrl = Uri.parse('https://wa.me/$phoneNumber/?text=${Uri.encodeComponent(message)}');
+
+    try {
+      if (await canLaunchUrl(whatsappUrl)) {
+        await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
+      } else if (await canLaunchUrl(webWhatsappUrl)) {
+        // Fallback to web WhatsApp if direct app launch fails
+        await launchUrl(webWhatsappUrl, mode: LaunchMode.externalApplication);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر فتح واتساب. يرجى التأكد من تثبيت التطبيق.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error launching WhatsApp: $e'); // For debugging
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('حدث خطأ أثناء محاولة فتح واتساب.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 }

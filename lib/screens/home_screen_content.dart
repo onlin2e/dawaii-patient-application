@@ -429,7 +429,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                   child: Text(
                     '${months[currentLanguage]![currentDate.month - 1]} ${currentDate.year}',
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: screenHeight * 0.02,
                       fontWeight: FontWeight.bold,
                       color: Color.fromARGB(255, 106, 31, 217),
                     ),
@@ -437,7 +437,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                 ),
               ),
 
-              SizedBox(height: 10),
+              SizedBox(height: screenHeight * 0.02),
 
               // شريط التواريخ
               SingleChildScrollView(
@@ -450,7 +450,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                       child: Column(
                         children: [
                           Container(
-                            padding: EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                            padding: EdgeInsets.symmetric(vertical: 5, horizontal: 10),
                             decoration: isToday
                                 ? BoxDecoration(
                                     color: Color.fromARGB(255, 106, 31, 217),
@@ -463,16 +463,16 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                                   '${date.day}',
                                   style: TextStyle(
                                     color: isToday ? Colors.white : Color.fromARGB(255, 106, 31, 217),
-                                    fontSize: 16,
+                                    fontSize: screenHeight * 0.015,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                                SizedBox(height: 10),
+                                SizedBox(height: screenHeight * 0.015),
                                 Text(
                                   '${weekdays[currentLanguage]![date.weekday % 7]}',
                                   style: TextStyle(
                                     color: isToday ? Colors.white : Color.fromARGB(255, 106, 31, 217),
-                                    fontSize: 12,
+                                    fontSize: screenWidth * 0.03,
                                   ),
                                 ),
                               ],
@@ -485,7 +485,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                 ),
               ),
 
-              SizedBox(height: 25),
+              SizedBox(height: screenHeight * 0.02),
 
           // القسم البنفسجي
             Expanded(
@@ -510,7 +510,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                           texts['to_take']!,
                           style: TextStyle(
                             color: Colors.white,
-                            fontSize: 20,
+                            fontSize: screenHeight * 0.02,
                             fontWeight: FontWeight.bold,
                           ),
                         ),

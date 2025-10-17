@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:med_ad_app/provider/local_provider.dart';
-import 'package:med_ad_app/screens/chat_screen.dart';
 import 'package:med_ad_app/screens/medication_screen.dart';
 import 'package:med_ad_app/screens/notification_screen.dart';
 import 'package:med_ad_app/screens/home_screen_content.dart';
