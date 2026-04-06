@@ -14,7 +14,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'firebase_options.dart';
 import 'package:intl/intl.dart';
 
-// معالجة الإشعارات في الخلفية
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -23,7 +22,6 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('Handling a background message: ${message.messageId}');
 }
 
-// إنشاء قناة إشعارات Android
 late AndroidNotificationChannel channel;
 bool isFlutterLocalNotificationsInitialized = false;
 late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
@@ -61,8 +59,6 @@ void showFlutterNotification(RemoteMessage message) {
   String? title = notification?.title;
   String? body = notification?.body;
 
-  // إذا لم تكن هناك بيانات notification مباشرة، حاول استخدام data payload
-  // هذا الجزء مهم جداً بعد تعديل وظيفة Firebase لإرسال 'data'
   if (title == null && body == null) {
     title = message.data['title'] ?? 'Med Ad Notification!';
     body = message.data['body'] ?? 'This notification was created via FCM!';
@@ -73,10 +69,10 @@ void showFlutterNotification(RemoteMessage message) {
   print('[showFlutterNotification] Received Android Details: Channel ID: ${android?.channelId}, Icon: ${android?.smallIcon}');
   print('[showFlutterNotification] Is kIsWeb: $kIsWeb');
 
-  if (title != null && body != null && !kIsWeb) { // الشرط تغير ليعتمد على title و body وليس notification object
+  if (title != null && body != null && !kIsWeb) {
     print('[showFlutterNotification] Conditions met. Displaying notification...');
     flutterLocalNotificationsPlugin.show(
-      notification?.hashCode ?? 0, // استخدم hashCode من notification أو 0 إذا كان null
+      notification?.hashCode ?? 0,
       title,
       body,
       NotificationDetails(
@@ -115,21 +111,15 @@ String constructFCMPayload(String? token) {
   });
 }
 
-/// يمثل أداء المريض اليومي في تناول الدواء.
 class DailyPerformance {
-  /// إجمالي عدد الجرعات المجدولة لهذا اليوم.
   int totalScheduled = 0;
 
-  /// عدد الجرعات التي تم أخذها بنجاح (فقط "أُخذت").
   int excellent = 0;
 
-  /// عدد الجرعات التي لم يتم أخذها أو تم تفويتها.
   int poor = 0;
 
-  /// النسبة المئوية للالتزام اليومي (الجرعات المأخوذة / الإجمالي).
   double dailyPercentage = 0.0;
 
-  /// التاريخ الذي يمثله هذا الأداء.
   DateTime date;
 
   DailyPerformance({
@@ -140,27 +130,23 @@ class DailyPerformance {
     required this.date,
   });
 
-  /// يحول كائن DailyPerformance إلى Map ليتم حفظه في Firestore.
   Map<String, dynamic> toJson() {
     return {
       'totalScheduled': totalScheduled,
       'excellent': excellent,
       'poor': poor,
       'dailyPercentage': dailyPercentage,
-      'date': date.toIso8601String(), // حفظ التاريخ كـ String لسهولة القراءة
+      'date': date.toIso8601String(),
     };
   }
 
-  /// ينشئ كائن DailyPerformance من بيانات Map (من Firestore).
   factory DailyPerformance.fromJson(Map<String, dynamic> json) {
     DateTime parsedDate;
-    // محاولة قراءة التاريخ كـ Timestamp أولاً، ثم كـ String إذا فشل
     if (json['date'] is Timestamp) {
       parsedDate = (json['date'] as Timestamp).toDate();
     } else if (json['date'] is String) {
       parsedDate = DateTime.parse(json['date']);
     } else {
-      // تعيين تاريخ اليوم كقيمة افتراضية إذا كان الحقل غير موجود أو غير صالح
       parsedDate = DateTime.now();
     }
 
@@ -174,7 +160,6 @@ class DailyPerformance {
   }
 }
 
-/// دالة لحساب وحفظ أداء المريض اليومي في تناول الدواء.
 Future<void> _calculateAndSaveDailyPerformance() async {
   try {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -188,7 +173,6 @@ Future<void> _calculateAndSaveDailyPerformance() async {
     DateTime today = DateTime.now();
     DateTime startOfDay = DateTime(today.year, today.month, today.day);
 
-    // مرجع لمجموعة DailyPerformances الخاصة بالمريض
     CollectionReference performanceCollection = firestore
         .collection('ActivePatient')
         .doc(patientId)
@@ -196,7 +180,6 @@ Future<void> _calculateAndSaveDailyPerformance() async {
 
     DateTime? firstDay;
 
-    // جلب جميع الأدوية الخاصة بالمريض أولاً.
     QuerySnapshot patientMedicineSnapshot = await firestore
         .collection('ActivePatient')
         .doc(patientId)
@@ -204,8 +187,6 @@ Future<void> _calculateAndSaveDailyPerformance() async {
         .get();
 
     if (patientMedicineSnapshot.docs.isNotEmpty) {
-      // البحث عن أقدم وقت مجدول لجرعة دواء عبر جميع سجلات تناول الأدوية لهذا المريض.
-      // هذا يضمن أننا نبدأ الحساب من أول يوم بدأ فيه المريض العلاج.
       for (final medicineDoc in patientMedicineSnapshot.docs) {
         final QuerySnapshot logSnapshot = await firestore
             .collection('ActivePatient')
@@ -232,16 +213,13 @@ Future<void> _calculateAndSaveDailyPerformance() async {
       }
     }
 
-    // إذا لم يتم العثور على سجلات تناول دواء، ابدأ الحساب من اليوم الحالي.
     if (firstDay == null) {
       print('No medicine intake logs found for patient. Cannot calculate performance. Starting from today.');
       firstDay = startOfDay;
     } else {
-      // التأكد من أن firstDay هو بداية اليوم (إزالة معلومات الوقت).
       firstDay = DateTime(firstDay.year, firstDay.month, firstDay.day);
     }
 
-    // التكرار عبر كل يوم من أول يوم علاج حتى اليوم الحالي.
     for (DateTime currentDate = firstDay;
         !currentDate.isAfter(today);
         currentDate = currentDate.add(const Duration(days: 1))) {
@@ -249,19 +227,15 @@ Future<void> _calculateAndSaveDailyPerformance() async {
           DateTime(currentDate.year, currentDate.month, currentDate.day);
       String currentDayString = DateFormat('yyyy-MM-dd').format(currentDayStart);
 
-      // تهيئة كائن DailyPerformance لليوم الحالي.
       DailyPerformance dailyPerformance = DailyPerformance(date: currentDayStart);
 
-      // إعادة تعيين العدادات لضمان حساب جديد لكل يوم.
       dailyPerformance.totalScheduled = 0;
       dailyPerformance.excellent = 0;
       dailyPerformance.poor = 0;
 
-      // التكرار عبر جميع أدوية المريض النشطة.
       for (final medicineDoc in patientMedicineSnapshot.docs) {
         final Map<String, dynamic>? medicineData = medicineDoc.data() as Map<String, dynamic>?;
 
-        // تخطي الدواء إذا كانت بياناته فارغة.
         if (medicineData == null) {
           print('DEBUG: medicineData is null for doc ID: ${medicineDoc.id}. Skipping.');
           continue;
@@ -271,7 +245,6 @@ Future<void> _calculateAndSaveDailyPerformance() async {
         final Timestamp? medicineStartDate = medicineData['StartDate'];
         final Timestamp? medicineEndDate = medicineData['EndDate'];
 
-        // تخطي الدواء إذا كانت البيانات الأساسية (أوقات/تواريخ) مفقودة.
         if (medicineTimes == null || medicineStartDate == null || medicineEndDate == null) {
           print('DEBUG: Missing essential medicine data (times/dates) for doc ID: ${medicineDoc.id}. Skipping.');
           continue;
@@ -280,36 +253,26 @@ Future<void> _calculateAndSaveDailyPerformance() async {
         final DateTime medStartDay = DateTime(medicineStartDate.toDate().year, medicineStartDate.toDate().month, medicineStartDate.toDate().day);
         final DateTime medEndDay = DateTime(medicineEndDate.toDate().year, medicineEndDate.toDate().month, medicineEndDate.toDate().day);
 
-        // التحقق مما إذا كان اليوم الحالي يقع ضمن فترة علاج الدواء.
         if (!currentDayStart.isBefore(medStartDay) && !currentDayStart.isAfter(medEndDay)) {
           for (final time in medicineTimes) {
             final List<String> parts = time.split(':');
             final int hour = int.parse(parts[0]);
             final int minute = int.parse(parts[1]);
 
-            // ***** التعديل هنا: إنشاء scheduledDateTime ليتطابق مع ID المستند في Firestore *****
-            // بما أن Firestore يخزن Timestamp بتوقيت UTC، فيجب أن يكون الجزء الذي يشكل الـ ID بتوقيت UTC.
-            // الـ scheduledTime في Firestore هو "21 July 2025 at 19:44:00 UTC+4".
-            // هذا يعني أنه 15:44:00 UTC. لذا يجب أن ننشئ الـ DateTime كـ UTC مباشرة.
             final DateTime scheduledDateTimeForId = DateTime.utc(
                 currentDayStart.year,
                 currentDayStart.month,
                 currentDayStart.day,
                 hour,
                 minute);
-            // **********************************************************************************
 
-            // بناء معرف مستند سجل التناول المتوقع باستخدام توقيت UTC
             final String intakeLogDocId = '${medicineDoc.id}_${scheduledDateTimeForId.millisecondsSinceEpoch}';
 
-            // ***** DEBUGGING PRINT STATEMENTS *****
             print('--- Processing for ${DateFormat('yyyy-MM-dd HH:mm').format(scheduledDateTimeForId.toLocal())} (Local Time Display) ---');
             print('DEBUG: Attempting to fetch log for medicineDoc.id: ${medicineDoc.id}');
             print('DEBUG: Scheduled Date Time (UTC used for ID): $scheduledDateTimeForId (Epoch: ${scheduledDateTimeForId.millisecondsSinceEpoch})');
             print('DEBUG: Constructed intakeLogDocId: $intakeLogDocId');
-            // ***************************************
 
-            // جلب سجل تناول الدواء المحدد.
             final DocumentSnapshot intakeLogSnapshot = await firestore
                 .collection('ActivePatient')
                 .doc(patientId)
@@ -319,15 +282,13 @@ Future<void> _calculateAndSaveDailyPerformance() async {
                 .doc(intakeLogDocId)
                 .get();
 
-            dailyPerformance.totalScheduled++; // زيادة إجمالي الجرعات المجدولة.
-
+            dailyPerformance.totalScheduled++; 
             if (intakeLogSnapshot.exists) {
                 print('DEBUG: Intake log snapshot EXISTS for ID: $intakeLogDocId');
                 final Map<String, dynamic>? logDataFromSnapshot = intakeLogSnapshot.data() as Map<String, dynamic>?;
 
                 if (logDataFromSnapshot != null) {
                     print('DEBUG: Log data: $logDataFromSnapshot');
-                    // ***** منطق التصنيف الجديد: Excellent (مأخوذ) أو Poor (لم يؤخذ) *****
                     if (logDataFromSnapshot['taken'] == true) {
                         dailyPerformance.excellent++;
                         print('DEBUG: Dose marked as EXCELLENT (taken: true).');
@@ -335,7 +296,6 @@ Future<void> _calculateAndSaveDailyPerformance() async {
                         dailyPerformance.poor++;
                         print('DEBUG: Dose marked as POOR (taken: false).');
                     }
-                    // ******************************************************************
                 } else {
                     dailyPerformance.poor++;
                     print('DEBUG: Log data is NULL for existing snapshot. Marked as POOR.');
@@ -348,12 +308,10 @@ Future<void> _calculateAndSaveDailyPerformance() async {
         }
       }
 
-      // حساب النسبة المئوية للالتزام بناءً على الجرعات Excellent.
       dailyPerformance.dailyPercentage = dailyPerformance.totalScheduled > 0
           ? (dailyPerformance.excellent / dailyPerformance.totalScheduled) * 100
           : 0.0;
 
-      // حفظ الأداء اليومي في Firestore.
       await performanceCollection
           .doc(currentDayString)
           .set(dailyPerformance.toJson(), SetOptions(merge: true));
@@ -361,7 +319,7 @@ Future<void> _calculateAndSaveDailyPerformance() async {
       print(
           'Daily performance saved for $currentDayString: ${dailyPerformance.dailyPercentage.toStringAsFixed(2)}%. '
           'Total Scheduled: ${dailyPerformance.totalScheduled}, Taken: ${dailyPerformance.excellent}, Not Taken: ${dailyPerformance.poor}');
-      print('----------------------------------------------------'); // فاصل لسهولة القراءة
+      print('----------------------------------------------------');
     }
   } catch (e) {
     print('Error calculating and saving daily performance: $e');
@@ -395,10 +353,9 @@ void main() async {
     _calculateAndSaveDailyPerformance();
   });
 
-  // حساب وحفظ الأداء عند بدء التطبيق ويوميًا.
-  _calculateAndSaveDailyPerformance(); // الحساب الأولي
+  _calculateAndSaveDailyPerformance();
   Timer.periodic(const Duration(days: 1), (timer) {
-    _calculateAndSaveDailyPerformance(); // إعادة الحساب كل 24 ساعة
+    _calculateAndSaveDailyPerformance();
   });
 
   runApp(

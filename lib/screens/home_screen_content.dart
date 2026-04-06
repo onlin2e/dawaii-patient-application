@@ -45,14 +45,14 @@ class _HomeScreenContentState extends State<HomeScreenContent> {
     fetchPatientName(); 
     // _loadConfirmedMedicines();
       _loadRemindLaterStates();
-     _medicinesFuture = fetchScheduledMedicines(); // تهيئة Future عند بدء التشغيل
+     _medicinesFuture = fetchScheduledMedicines(); 
 
 
   }
 
 Future<void> _loadRemindLaterStates() async {
   final prefs = await SharedPreferences.getInstance();
-  final meds = await fetchScheduledMedicines(); // أو أي طريقة تحصل بها على قائمة الأدوية
+  final meds = await fetchScheduledMedicines(); 
 
 
   for (var med in meds) {
@@ -78,17 +78,15 @@ Future<void> _loadRemindLaterStates() async {
           }
         });
       } else {
-        // إذا انقضى الوقت أثناء عدم تشغيل التطبيق، قم بإزالة الحالة
         await prefs.remove('remindLaterDisabled_$medicineId');
         await prefs.remove('remindLaterExpiry_$medicineId');
       }
     }
   }
 }
-  // استرجاع patientId من SharedPreferences
 Future<String> getPatientId() async {
   final SharedPreferences prefs = await SharedPreferences.getInstance();
-  return prefs.getString('patientId') ?? ''; // إرجاع قيمة فارغة إذا لم يتم العثور عليها
+  return prefs.getString('patientId') ?? '';
 
   
 }
@@ -102,7 +100,6 @@ Future<String?> getDeviceToken() async {
   }
 }
 
-//remind me later
 void _remindMeLater(Map<String, dynamic> med) async {
     final medicineId = med['medicineId'] as String;
     final disableDuration = const Duration(minutes: 30);
@@ -113,11 +110,9 @@ void _remindMeLater(Map<String, dynamic> med) async {
       _remindLaterButtonDisabled[medicineId] = true;
     });
 
-    // حفظ حالة الزر ووقت الانتهاء في shared_preferences
     await prefs.setBool('remindLaterDisabled_$medicineId', true);
     await prefs.setString('remindLaterExpiry_$medicineId', expiryTime);
 
-    // قم بتشغيل التذكير الفوري (الكود السابق الخاص بإنشاء التذكير)
     final medicineName = med['MedicineName'] as String;
     final deviceToken = await getDeviceToken();
     final patientId = await getPatientId();
@@ -143,9 +138,7 @@ void _remindMeLater(Map<String, dynamic> med) async {
         'scheduledTime': Timestamp.fromDate(scheduledTimeUtc),
       });
 
-      // لا تقم بإدارة _remindLaterCounts هنا إذا لم تعد تستخدمها للحد.
-
-      // بعد نصف ساعة، قم بتمكين الزر محليًا وإزالة الحالة من SharedPreferences
+ 
       Future.delayed(disableDuration, () async {
         final currentExpiry = await prefs.getString('remindLaterExpiry_$medicineId');
         if (currentExpiry == expiryTime && mounted) {
@@ -217,13 +210,11 @@ Future<List<Map<String, dynamic>>> fetchScheduledMedicines() async {
               .doc(intakeLogDocId);
 
           DocumentSnapshot intakeLogSnapshot = await intakeLogsRef.get();
-          // *** FIX APPLIED HERE ***
           final intakeLogData = intakeLogSnapshot.data() as Map<String, dynamic>?;
 
 
           if (now.isAfter(medicineDateTime.subtract(const Duration(minutes: 1))) &&
               now.isBefore(endTime)) {
-            // Check if the record exists OR if it exists but 'taken' is NOT true
             if (!intakeLogSnapshot.exists || !(intakeLogData?['taken'] == true)) {
               scheduledMedicines.add(Map<String, dynamic>.from(medicineData)
                 ..['scheduledTime'] = medicineDateTime
@@ -232,15 +223,7 @@ Future<List<Map<String, dynamic>>> fetchScheduledMedicines() async {
               );
             }
           }
-          // else if (medicineDateTime.isBefore(now.subtract(const Duration(minutes: 1))) &&
-          //          !now.isBefore(medicineDateTime.add(const Duration(minutes: 1)))) {
-          //   await intakeLogsRef.set({
-          //     'scheduledTime': Timestamp.fromDate(medicineDateTime),
-          //     'taken': false,
-          //     'missedReason': 'تجاوز وقت الدواء دون تأكيد',
-          //     'timestamp': Timestamp.fromDate(now),
-          //   }, SetOptions(merge: true));
-          // }
+        
         } catch (e) {
           print('Error parsing time: $timeNow - $e');
         }
@@ -254,17 +237,7 @@ Future<List<Map<String, dynamic>>> fetchScheduledMedicines() async {
   return scheduledMedicines;
 }
 
- 
-/////confirm
-// في FutureBuilder's itemBuilder:
-// ...
-// تأكد من تمرير intakeLogDocId
-// final intakeLogDocId = med['intakeLogDocId'] as String;
-// ...
-// onPressed: () => _confirm(med, intakeLogDocId), // تمرير intakeLogDocId هنا
-// ...
 
-// تحديث تعريف دالة _confirm
 Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
   setState(() {
     _isConfirming = true;
@@ -282,22 +255,20 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
       .collection('PatientMedicine')
       .doc(medicineId)
       .collection('MedicineIntakeLogs')
-      .doc(intakeLogDocId); // تحديد المستند بالـ ID الفريد
+      .doc(intakeLogDocId); 
 
-    await intakeLogsRef.set({ // استخدام set مع merge
+    await intakeLogsRef.set({ 
       'scheduledTime': Timestamp.fromDate(scheduledTime),
       'takenAt': Timestamp.fromDate(now),
       'takenBy': patientId,
       'taken': true,
-      'missedReason': FieldValue.delete(), // حذف حقل missedReason إذا كان موجودًا
+      'missedReason': FieldValue.delete(),
     }, SetOptions(merge: true));
 
     print('تم تأكيد أخذ الدواء بمعرف: $medicineId ... وتم حفظ/تحديث السجل.');
 
-    // بعد التأكيد بنجاح، يجب أن تحدث واجهة المستخدم.
-    // الطريقة الأبسط هي إعادة تحميل الأدوية المجدولة:
     setState(() {
-      _medicinesFuture = fetchScheduledMedicines(); // إعادة جلب الأدوية لتحديث القائمة
+      _medicinesFuture = fetchScheduledMedicines(); 
     });
 
   } else {
@@ -308,11 +279,9 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
   });
 }
 
-// get name
    Future<void> fetchPatientName() async {
   try {
-    String patientId = await getPatientId(); // استرجاع patientId من SharedPreferences
-
+    String patientId = await getPatientId();
     var snapshot = await FirebaseFirestore.instance
         .collection('ActivePatient')
         .where('patientId', isEqualTo: patientId) 
@@ -395,7 +364,6 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        // child: SingleChildScrollView(
           child: Column(
             children: [
               Padding(
@@ -421,7 +389,6 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                 ),
               ),
 
-              // عرض اسم الشهر والسنة بناءً على اللغة
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16.0),
                 child: Align(
@@ -439,7 +406,6 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
 
               SizedBox(height: screenHeight * 0.02),
 
-              // شريط التواريخ
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
@@ -487,11 +453,9 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
 
               SizedBox(height: screenHeight * 0.02),
 
-          // القسم البنفسجي
             Expanded(
               child: Container(
                 width:screenWidth,
-                // margin: EdgeInsets.only(top: 10),
                 decoration: BoxDecoration(
                   
                   color: Color.fromARGB(255, 106, 31, 217), 
@@ -500,7 +464,6 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                     topRight: Radius.circular(16),
                   ),
                 ),
-                // child: SingleChildScrollView(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -634,9 +597,9 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                   .collection('PatientMedicine')
                   .doc(medicineId)
                   .collection('MedicineIntakeLogs')
-                  .doc(intakeLogDocId); // <--- استخدام intakeLogDocId هنا لتحديد المستند
+                  .doc(intakeLogDocId);
 
-              await intakeLogsRef.set({ // استخدام set مع merge لتحديث أو إنشاء السجل
+              await intakeLogsRef.set({
                 'scheduledTime': Timestamp.fromDate(scheduledTime),
                 'takenAt': Timestamp.fromDate(now),
                 'takenBy': patientId,
@@ -646,10 +609,8 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
 
               print('تم تأكيد أخذ الدواء بمعرف: $medicineId ... وتم حفظ/تحديث السجل.');
 
-              // بعد التأكيد بنجاح، يجب أن تحدث واجهة المستخدم.
-              // الطريقة الأبسط هي إعادة تحميل الأدوية المجدولة:
               setState(() {
-                _medicinesFuture = fetchScheduledMedicines(); // إعادة جلب الأدوية لتحديث القائمة
+                _medicinesFuture = fetchScheduledMedicines(); 
               });
             } else {
               print('خطأ: لا يمكن الحصول على معرف الدواء أو معرف السجل لحفظ سجل الأخذ.');
@@ -668,7 +629,6 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
   ),
 ),
                                         const SizedBox(width: 16),
-                                        /// زر "ذكرني لاحقا"
                                         Expanded(
                                                  child: ElevatedButton(
                                                    onPressed: _remindLaterButtonDisabled[med['medicineId']] == true
@@ -676,7 +636,7 @@ Future<void> _confirm(Map<String, dynamic> med, String intakeLogDocId) async {
                                                        : () => _remindMeLater(med),
                                                    style: ElevatedButton.styleFrom(
                                                      backgroundColor: _remindLaterButtonDisabled[med['medicineId']] == true
-                                                         ? Colors.grey.shade400 // لون فضي عند التعطيل
+                                                         ? Colors.grey.shade400 
                                                          : Colors.orange.shade400,
                                                      foregroundColor: Colors.white,
                                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),

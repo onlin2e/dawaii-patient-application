@@ -1,4 +1,4 @@
-import 'package:med_ad_app/screens/aboutus_screen.dart'; // استيراد صفحة AboutusScreen
+import 'package:med_ad_app/screens/aboutus_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:med_ad_app/provider/local_provider.dart';
 import 'package:provider/provider.dart';
@@ -14,7 +14,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _patientName = 'Loading...'; // متغير لتخزين اسم المريض
+  String _patientName = 'Loading...';
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -24,7 +24,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadPatientInfo();
   }
 
-  // دالة لجلب patientId واسم المريض
   Future<void> _loadPatientInfo() async {
     setState(() {
       _isLoading = true;
@@ -51,7 +50,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // دالة لجلب اسم المريض من Firestore بناءً على patientId
   Future<void> _fetchPatientName(String patientId) async {
     try {
       final snapshot = await FirebaseFirestore.instance
@@ -254,9 +252,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.pop(context);
   }
 
-  // دالة لفتح تطبيق واتساب وبدء محادثة مباشرة
   Future<void> _launchWhatsApp(BuildContext context) async {
-    final phoneNumber = '96879335705'; // Your WhatsApp number with country code
+    final phoneNumber = '96879335705'; 
     final message = 'مرحبا. ';
 
 
@@ -267,7 +264,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (await canLaunchUrl(whatsappUrl)) {
         await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
       } else if (await canLaunchUrl(webWhatsappUrl)) {
-        // Fallback to web WhatsApp if direct app launch fails
         await launchUrl(webWhatsappUrl, mode: LaunchMode.externalApplication);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -278,7 +274,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (e) {
-      print('Error launching WhatsApp: $e'); // For debugging
+      print('Error launching WhatsApp: $e'); 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('حدث خطأ أثناء محاولة فتح واتساب.'),

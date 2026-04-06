@@ -65,7 +65,6 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
     Map<DateTime, DailyPerformance> performances = {};
 
     if (_patientId.isEmpty) {
-      // Log an error or show a message if patientId is not found
       print('No patientId found in SharedPreferences.');
       return {};
     }
@@ -91,7 +90,6 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
         }
       } catch (e) {
         print('Error fetching daily performance for $dateString: $e');
-        // Handle error, e.g., by returning a default DailyPerformance
         performances[date] = DailyPerformance(date: date);
       }
     }
@@ -156,7 +154,6 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Tip Container
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -184,11 +181,10 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
             ),
             const SizedBox(height: 40),
             const Divider(),
-            _buildStatusIndicators(language, isArabic), // Pass isArabic
+            _buildStatusIndicators(language, isArabic), 
             const SizedBox(height: 30),
             const Divider(),
             const SizedBox(height: 50),
-            // Week Navigation
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -215,7 +211,6 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
               ],
             ),
             const SizedBox(height: 15),
-            // Daily Performance Indicators
             FutureBuilder<Map<DateTime, DailyPerformance>>(
               future: _dailyPerformancesFuture,
               builder: (context, snapshot) {
@@ -223,19 +218,18 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
                   return const CircularProgressIndicator();
                 }
                 if (snapshot.hasError) {
-                  return Text('Error loading data: ${snapshot.error}'); // More descriptive error
+                  return Text('Error loading data: ${snapshot.error}');
                 }
                 final performances = snapshot.data ?? {};
                 return LayoutBuilder(
                   builder: (context, constraints) {
-                    final double spacing = 8; // Smaller spacing for more compact layout
-                    // Calculate item width based on available width and desired spacing
-                    // 7 items, 6 spaces between them
+                    final double spacing = 8;
+                  
                     final double itemWidth = (constraints.maxWidth - (6 * spacing)) / 7; 
                     
                     return Wrap(
-                      spacing: spacing, // Horizontal spacing
-                      runSpacing: spacing, // Vertical spacing
+                      spacing: spacing, 
+                      runSpacing: spacing,
                       alignment: WrapAlignment.center,
                       children: weekDays.map((date) {
                         final performance = performances[date] ??
@@ -246,13 +240,11 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
                           width: itemWidth,
                           child: Column(
                             children: [
-                              // عرض رقم اليوم بدلاً من اسم اليوم
                               Text(
-                                DateFormat('d', language == 'en' ? 'en_US' : 'ar_SA') // 'd' لعرض رقم اليوم
+                                DateFormat('d', language == 'en' ? 'en_US' : 'ar_SA')
                                     .format(date),
                                 style: TextStyle(
                                     color: Colors.grey[500], fontSize: 16),
-                                // لا نحتاج لـ overflow.ellipsis هنا لأن الأرقام قصيرة
                               ),
                               const SizedBox(height: 5),
                               Container(
@@ -280,16 +272,13 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
   Widget _buildStatusIndicators(String language, bool isArabic) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        // Use a threshold for responsiveness, e.g., 600 or 700 pixels
         if (constraints.maxWidth > 600) {
-          // For wider screens (e.g., tablets or landscape phones)
           return Row(
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 child: Column(
-                  // Adjust alignment based on language direction
                   crossAxisAlignment: isArabic ? CrossAxisAlignment.start : CrossAxisAlignment.end,
                   children: [
                     _buildStatusIndicator(
@@ -307,27 +296,24 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
                 ),
               ),
               const SizedBox(width: 30),
-              // Use Flexible and FittedBox for adaptive image sizing
               Flexible(
                 child: FittedBox(
                   fit: BoxFit.contain,
-                  child: Image.asset('assets/medicins.png', width: 180), // Maintain larger size for wide screens
+                  child: Image.asset('assets/medicins.png', width: 180),
                 ),
               ),
             ],
           );
         } else {
-          // For smaller screens (e.g., most phones in portrait)
           return Column(
             children: [
-              // Use FittedBox to ensure the image scales correctly
               FittedBox(
                 fit: BoxFit.contain,
-                child: Image.asset('assets/medicins.png', width: 150), // Smaller image for small screens
+                child: Image.asset('assets/medicins.png', width: 150),
               ),
               const SizedBox(height: 20),
               Column(
-                crossAxisAlignment: CrossAxisAlignment.start, // Align to start for better readability on small screens
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildStatusIndicator(
                       language == 'en' ? "Excellent" : "ممتاز", Colors.green.shade400, isArabic),
@@ -351,8 +337,7 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
 
   Widget _buildStatusIndicator(String text, Color color, bool isArabic) {
     return Row(
-      mainAxisSize: MainAxisSize.min, // Use min to wrap content
-      // Adjust alignment based on language direction for the Row itself
+      mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: isArabic ? MainAxisAlignment.end : MainAxisAlignment.start,
       children: [
         Container(
@@ -374,23 +359,20 @@ class _MedicineTrackingScreenState extends State<MedicineTrackingScreen> {
   }
 }
 
-// Ensure these enums and classes are correctly defined elsewhere or within this file
-// Ensure these enums and classes are correctly defined elsewhere or within this file
+
 enum PerformanceCategory { excellent, moderate, poor, none }
 
 class DailyPerformance {
   int totalScheduled = 0;
   int excellent = 0;
-  // أزل 'moderate' و 'poor' من هنا إذا كنت لا تستخدمها مباشرة في الحفظ/الجلب
-  // واستخدمها فقط كمتغيرات محلية في _calculateDailyCategory
-  int poor = 0; // احتفظ بـ poor لأنه يتم حسابه في main.dart
+
+  int poor = 0;
   double dailyPercentage = 0.0;
   DateTime date;
 
   DailyPerformance({
     this.totalScheduled = 0,
     this.excellent = 0,
-    // this.moderate = 0, // أزل هذا
     this.poor = 0,
     this.dailyPercentage = 0.0,
     required this.date,
@@ -398,38 +380,32 @@ class DailyPerformance {
 
   factory DailyPerformance.fromJson(Map<String, dynamic> json) {
     DateTime parsedDate;
-    // حاول قراءتها كـ Timestamp أولاً (إذا كانت البيانات القديمة هكذا)
     if (json['date'] is Timestamp) {
       parsedDate = (json['date'] as Timestamp).toDate();
     }
-    // وإلا، حاول قراءتها كـ String (إذا كانت البيانات الجديدة هكذا)
     else if (json['date'] is String) {
       parsedDate = DateTime.parse(json['date']);
     } else {
-      // كحل احتياطي، استخدم تاريخ اليوم أو قم برمية خطأ إذا كان النوع غير متوقع
       print('Warning: Unexpected type for "date" field in DailyPerformance: ${json['date'].runtimeType}');
-      parsedDate = DateTime.now(); // أو يمكن رمي استثناء هنا
+      parsedDate = DateTime.now();
     }
 
     return DailyPerformance(
       totalScheduled: json['totalScheduled'] ?? 0,
       excellent: json['excellent'] ?? 0,
-      // moderate: json['moderate'] ?? 0, // أزل هذا
       poor: json['poor'] ?? 0,
       dailyPercentage: (json['dailyPercentage'] as num?)?.toDouble() ?? 0.0,
       date: parsedDate,
     );
   }
 
-  // هذه الدالة لا تحتاج لتغيير لأنها تحفظ التاريخ كـ String وهذا ما تريده
   Map<String, dynamic> toJson() {
     return {
       'totalScheduled': totalScheduled,
       'excellent': excellent,
-      // 'moderate': moderate, // أزل هذا إذا لم تعد تحفزه
       'poor': poor,
       'dailyPercentage': dailyPercentage,
-      'date': date.toIso8601String(), // حفظ التاريخ كـ String
+      'date': date.toIso8601String(),
     };
   }
 }

@@ -18,7 +18,6 @@ class _AboutusScreenState extends State<AboutusScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // خلفية متدرجة
           Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -31,7 +30,6 @@ class _AboutusScreenState extends State<AboutusScreen> {
               ),
             ),
           ),
-          // تصميم مبتكر باستخدام ClipPath
           ClipPath(
             clipper: WaveClipper(),
             child: Container(
@@ -49,7 +47,6 @@ class _AboutusScreenState extends State<AboutusScreen> {
               ),
             ),
           ),
-          // محتوى الصفحة
           Padding(
             padding: EdgeInsets.only(top: screenHeight * 0.35),
             child: SingleChildScrollView(
@@ -151,12 +148,11 @@ class _AboutusScreenState extends State<AboutusScreen> {
   }
 }
 
-// تصميم مخصص لقص الجزء العلوي بشكل متموج
 class WaveClipper extends CustomClipper<Path> {
   @override
   Path getClip(Size size) {
     var path = Path();
-    path.lineTo(0, size.height * 0.7); // ابدأ من الزاوية اليسرى السفلية
+    path.lineTo(0, size.height * 0.7);
 
     var firstControlPoint = Offset(size.width * 0.25, size.height * 0.6);
     var firstEndPoint = Offset(size.width * 0.5, size.height * 0.7);
@@ -168,8 +164,8 @@ class WaveClipper extends CustomClipper<Path> {
     path.quadraticBezierTo(secondControlPoint.dx, secondControlPoint.dy,
         secondEndPoint.dx, secondEndPoint.dy);
 
-    path.lineTo(size.width, 0); // اذهب إلى الزاوية اليمنى العلوية
-    path.lineTo(0, 0); // ارجع إلى النقطة الأولى
+    path.lineTo(size.width, 0); 
+    path.lineTo(0, 0); 
 
     return path;
   }

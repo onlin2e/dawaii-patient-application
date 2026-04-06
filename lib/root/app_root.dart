@@ -19,9 +19,9 @@ class AppRoot extends StatelessWidget {
         Locale('ar'), 
       ],
       localizationsDelegates: [
-        GlobalMaterialLocalizations.delegate, // دعم الترجمة للواجهة
-        GlobalWidgetsLocalizations.delegate,  // دعم الترجمة للأدوات
-        GlobalCupertinoLocalizations.delegate, // دعم الترجمة في iOS
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate, 
+        GlobalCupertinoLocalizations.delegate,
       ],
       home: const SplashScreen(),
     );

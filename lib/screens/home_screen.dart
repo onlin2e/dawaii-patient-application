@@ -28,10 +28,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // الحصول على اللغة الحالية من LocaleProvider
     final currentLanguage = Provider.of<LocaleProvider>(context).currentLanguage;
 
-    // النصوص بناءً على اللغة الحالية
     Map<String, Map<String, String>> _localizedTexts = {
       'en': {
         'home': 'Home',
@@ -47,7 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     };
 
-    final texts = _localizedTexts[currentLanguage]!; // استخدام النصوص بناءً على اللغة الحالية
+    final texts = _localizedTexts[currentLanguage]!;
 
     return Scaffold(
       body: _pages[_currentIndex],

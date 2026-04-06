@@ -33,7 +33,7 @@ class _MyMedScreenState extends State<MyMedScreen> {
 
   String convertUtcToOmanTime(String timeUtc) {
     final utcTime = DateFormat("HH:mm").parseUtc(timeUtc);
-    final omanTime = utcTime.add(const Duration(hours: 4)); // توقيت عمان
+    final omanTime = utcTime.add(const Duration(hours: 4));
     return DateFormat("HH:mm").format(omanTime);
   }
 
