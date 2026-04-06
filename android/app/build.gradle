@@ -1,0 +1,70 @@
+import java.util.Properties
+import java.io.FileInputStream
+
+plugins {
+    id "com.android.application"
+    // START: FlutterFire Configuration
+    id 'com.google.gms.google-services'
+    // END: FlutterFire Configuration
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
+// تم تغيير 'val' إلى 'def' واستخدام 'new Properties()' لبناء جملة Groovy الصحيحة
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    // تم إضافة 'new' قبل FileInputStream
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.squ.dawaiiapp" // تأكد من أن هذا يتطابق مع اسم الحزمة الجديد
+    compileSdk = flutter.compileSdkVersion
+    ndkVersion = flutter.ndkVersion
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    defaultConfig {
+        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        applicationId = "com.squ.dawaiiapp" // تأكد من أن هذا هو اسم الحزمة الجديد الذي تريده
+        // You can update the following values to match your application needs.
+        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        minSdk = flutter.minSdkVersion
+        targetSdk = flutter.targetSdkVersion
+        versionCode = flutter.versionCode
+        versionName = flutter.versionName 
+ 
+        // versionName = flutter.versionName
+    }
+    signingConfigs {
+        create("release") {
+            keyAlias = keystoreProperties["keyAlias"] as String
+            keyPassword = keystoreProperties["keyPassword"] as String
+            // تم تصحيح هذا السطر: استخدام getProperty و file() بدلاً من بناء جملة Kotlin '?.let'
+            storeFile = file(keystoreProperties.getProperty("storeFile"))
+            storePassword = keystoreProperties["storePassword"] as String
+        }
+    }
+    buildTypes {
+        release {
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now,
+            // so `flutter run --release` works.
+            // تم إزالة السطر المكرر 'signingConfig = signingConfigs.getByName("debug")'
+            signingConfig = signingConfigs.getByName("release") // <--- تم تصحيح هذا ليعكس التوقيع الخاص بالإصدار
+        }
+    }
+}
+
+flutter {
+    source = "../.."
+}
