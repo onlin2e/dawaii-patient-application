@@ -40,91 +40,98 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
-  Future<void> login() async {
-    if (!_formKey.currentState!.validate()) return;
+Future<void> login() async {
+  if (!_formKey.currentState!.validate()) return;
 
-    setState(() {
-      _isLoading = true;
-    });
+  setState(() {
+    _isLoading = true;
+  });
 
-    String name = nameController.text.trim();
-    String phone = phoneController.text.trim();
-    String password = passwordController.text.trim();
+  String name = nameController.text.trim();
+  String phone = phoneController.text.trim();
+  String password = passwordController.text.trim();
 
-    try {
-    
-      if (password == testPassword) {
-        String? deviceToken = await FirebaseMessaging.instance.getToken();
+  try {
 
-        await FirebaseFirestore.instance.collection('ActivePatient').doc(testPassword).set(
-          {
-            'patientId': testPassword,
-            'patientName': testName,
-            'patientPhone': testPhone,
-            'deviceToken': deviceToken,
-          },
-          SetOptions(merge: true), 
-        );
+    // Test account
+    if (password == testPassword) {
+      String? deviceToken = await FirebaseMessaging.instance.getToken();
 
-        SharedPreferences prefs = await SharedPreferences.getInstance();
-        prefs.setString('patientId', testPassword);
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => HomeScreen()),
-        );
-
-        return;
-      }
-
-      var querySnapshot = await FirebaseFirestore.instance
-          .collection('AddPatient')
-          .where('id', isEqualTo: password)
-          .get();
-
-      if (querySnapshot.docs.isNotEmpty) {
-        var activePatientSnapshot = await FirebaseFirestore.instance
-            .collection('ActivePatient')
-            .where('patientId', isEqualTo: password)
-            .get();
-
-        if (activePatientSnapshot.docs.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('تم استخدام الرمز السري مسبقًا')),
-          );
-        } else {
-          String? deviceToken = await FirebaseMessaging.instance.getToken();
-
-          await FirebaseFirestore.instance.collection('ActivePatient').doc(password).set({
-            'patientId': password,
-            'patientName': name,
-            'patientPhone': phone,
-            'deviceToken': deviceToken,
-          });
-
-          SharedPreferences prefs = await SharedPreferences.getInstance();
-          prefs.setString('patientId', password);
-
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => HomeScreen()),
-          );
-        }
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('الرمز السري غير صحيح')),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('حدث خطأ، حاول مرة أخرى')),
+      await FirebaseFirestore.instance
+          .collection('ActivePatient')
+          .doc(testPassword)
+          .set(
+        {
+          'patientId': testPassword,
+          'patientName': testName,
+          'patientPhone': testPhone,
+          'deviceToken': deviceToken,
+        },
+        SetOptions(merge: true),
       );
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('patientId', testPassword);
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => HomeScreen()),
+      );
+
+      return;
     }
+
+    // Check patient exists in AddPatient
+    var querySnapshot = await FirebaseFirestore.instance
+        .collection('AddPatient')
+        .where('id', isEqualTo: password)
+        .get();
+
+    if (querySnapshot.docs.isNotEmpty) {
+      String? deviceToken = await FirebaseMessaging.instance.getToken();
+
+      // يسمح بإعادة تسجيل الدخول دائماً
+      await FirebaseFirestore.instance
+          .collection('ActivePatient')
+          .doc(password)
+          .set(
+        {
+          'patientId': password,
+          'patientName': name,
+          'patientPhone': phone,
+          'deviceToken': deviceToken,
+        },
+        SetOptions(merge: true),
+      );
+
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('patientId', password);
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => HomeScreen()),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('الرمز السري غير صحيح'),
+        ),
+      );
+    }
+  } catch (e) {
+    debugPrint('Login Error: $e');
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('حدث خطأ، حاول مرة أخرى'),
+      ),
+    );
+  } finally {
+    setState(() {
+      _isLoading = false;
+    });
   }
+}
 
   @override
   Widget build(BuildContext context) {

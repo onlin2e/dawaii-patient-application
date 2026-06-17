@@ -6,12 +6,12 @@ class ReminderProvider extends ChangeNotifier {
   FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
       FlutterLocalNotificationsPlugin();
 
-  Map<String, Timer> _reminderTimers = {};
-  Map<String, bool> _isRemindingMap = {};
+  final Map<String, Timer> _reminderTimers = {};
+  final Map<String, bool> _isRemindingMap = {};
 
   Future<void> initialize() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('app_icon'); // استبدل 'app_icon' باسم أيقونة تطبيقك
+        AndroidInitializationSettings('app_icon');
 
     const InitializationSettings initializationSettings =
         InitializationSettings(android: initializationSettingsAndroid);
@@ -49,7 +49,6 @@ class ReminderProvider extends ChangeNotifier {
       });
       print('تم جدولة تذكير لـ $medicineName بعد 30 دقيقة.');
     } else {
-      // إذا كان الوقت قد فات بالفعل، قم بإعادة تفعيل الزر فورًا
       _isRemindingMap[medicineId] = false;
       notifyListeners();
       print('وقت التذكير بعد 30 دقيقة قد فات.');
@@ -67,9 +66,9 @@ class ReminderProvider extends ChangeNotifier {
   Future<void> _showNotification(String medicineName, String medicineId) async {
     const AndroidNotificationDetails androidNotificationDetails =
         AndroidNotificationDetails(
-      'reminder_channel_id', // معرف فريد للقناة
-      'Medicine Reminders', // اسم القناة
-      channelDescription: ' تذكيرات بأخذ الدواء', // وصف القناة
+      'reminder_channel_id',
+      'Medicine Reminders',
+      channelDescription: ' تذكيرات بأخذ الدواء',
       importance: Importance.high,
       priority: Priority.high,
       ticker: 'تذكير بالدواء',
@@ -77,7 +76,7 @@ class ReminderProvider extends ChangeNotifier {
     const NotificationDetails notificationDetails =
         NotificationDetails(android: androidNotificationDetails);
     await flutterLocalNotificationsPlugin.show(
-      0, // معرف الإشعار (يمكن أن يكون فريدًا لكل دواء إذا لزم الأمر)
+      0,
       'تذكير بالدواء',
       'تذكير بأخذ دواء: $medicineName',
       notificationDetails,
@@ -87,7 +86,9 @@ class ReminderProvider extends ChangeNotifier {
 
   @override
   void dispose() {
-    _reminderTimers.values.forEach((timer) => timer.cancel());
+    for (var timer in _reminderTimers.values) {
+      timer.cancel();
+    }
     _reminderTimers.clear();
     super.dispose();
   }
