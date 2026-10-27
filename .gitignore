@@ -43,3 +43,17 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Signing secrets - never upload
+/android/key.properties
+/android/app/upload-keystore.jks
+*.jks
+*.keystore
+*.p8
+*.p12
+*.mobileprovision
+
+# Crash logs
+hs_err_pid*.log
+replay_pid*.log
+node_modules/

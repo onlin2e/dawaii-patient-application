@@ -1,13 +1,17 @@
-
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:med_ad_app/provider/local_provider.dart';
-import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show DateFormat;
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'package:med_ad_app/main.dart'
+    show calculateAndSaveDailyPerformance, refreshLocalReminders;
+import 'package:med_ad_app/services/dose_service.dart';
+import 'package:med_ad_app/services/local_reminders.dart';
+import 'package:med_ad_app/theme/app_theme.dart';
+
+/// Home: today's full schedule, the dose due now and today's progress.
 class HomeScreenContent extends StatefulWidget {
   const HomeScreenContent({super.key});
 
@@ -16,633 +20,591 @@ class HomeScreenContent extends StatefulWidget {
 }
 
 class _HomeScreenContentState extends State<HomeScreenContent> {
-  String patientName = '...';
-  bool _isConfirming = false;
+  String _patientId = '';
+  String _firstName = '';
+  TodaySchedule? _schedule;
+  ProgressStats? _progress;
+  bool _loading = true;
+  String? _error;
+  final Set<String> _saving = {};
 
-  // نحتفظ بخريطة لتعطيل remind later محليًا (محفوظة إن احتجت لاحقًا)
-  final Map<String, bool> _remindLaterButtonDisabled = {};
-
-  // تهيئة المتغيرات كقيمة افتراضية لتفادي LateInitializationError
-  late Future<List<Map<String, dynamic>>> _medicinesFuture = Future.value(<Map<String, dynamic>>[]);
-  late Future<List<Map<String, dynamic>>> _takenTodayFuture = Future.value(<Map<String, dynamic>>[]);
-  late Future<Map<String, int>> _todayTotalsFuture = Future.value({'totalScheduled': 0, 'takenCount': 0});
-
-  // Subscriptions للـ realtime updates (hot reload)
-  StreamSubscription<QuerySnapshot>? _patientMedicineSub;
-  StreamSubscription<QuerySnapshot>? _intakeLogsSub;
+  Timer? _ticker;
+  StreamSubscription<QuerySnapshot>? _medsSub;
+  StreamSubscription<QuerySnapshot>? _logsSub;
 
   @override
   void initState() {
     super.initState();
-    fetchPatientName();
-    // تهيئة القيم عبر جلب البيانات الحقيقية
-    _medicinesFuture = fetchScheduledMedicines();
-    _refreshTakenAndTotals();
-    _registerRealtimeListeners();
+    _init();
+    // refresh countdowns and statuses every minute
+    _ticker = Timer.periodic(const Duration(minutes: 1), (_) => _reload(silent: true));
   }
 
   @override
   void dispose() {
-    _patientMedicineSub?.cancel();
-    _intakeLogsSub?.cancel();
+    _ticker?.cancel();
+    _medsSub?.cancel();
+    _logsSub?.cancel();
     super.dispose();
   }
 
-  // ============================
-  // Realtime listeners to hot-reload UI when data changes
-  // ============================
-  Future<void> _registerRealtimeListeners() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getString('patientId') ?? '';
-      if (patientId.isEmpty) return;
-
-      // Listener on PatientMedicine collection
-      _patientMedicineSub = FirebaseFirestore.instance
-          .collection('ActivePatient')
-          .doc(patientId)
-          .collection('PatientMedicine')
-          .snapshots()
-          .listen((snapshot) {
-        if (!mounted) return;
-        setState(() {
-          _medicinesFuture = fetchScheduledMedicines();
-          _refreshTakenAndTotals();
-        });
-      }, onError: (e) {
-        print('PatientMedicine listener error: $e');
-      });
-
-      // Listener on MedicineIntakeLogs collectionGroup for this patient (takenBy == patientId)
-      _intakeLogsSub = FirebaseFirestore.instance
-          .collectionGroup('MedicineIntakeLogs')
-          .where('takenBy', isEqualTo: patientId)
-          .snapshots()
-          .listen((snapshot) {
-        if (!mounted) return;
-        setState(() {
-          _medicinesFuture = fetchScheduledMedicines();
-          _refreshTakenAndTotals();
-        });
-      }, onError: (e) {
-        print('MedicineIntakeLogs listener error: $e');
-      });
-    } catch (e) {
-      print('Failed to register realtime listeners: $e');
+  Future<void> _init() async {
+    final prefs = await SharedPreferences.getInstance();
+    _patientId = prefs.getString('patientId') ?? '';
+    if (_patientId.isEmpty) {
+      setState(() => _loading = false);
+      return;
     }
-  }
-
-  void _refreshTakenAndTotals() {
-    _takenTodayFuture = fetchTodayTakenMedicines();
-    _todayTotalsFuture = computeTodayTotals();
-  }
-
-  // ============================
-  // Helpers: patientId, token
-  // ============================
-  Future<String> getPatientId() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    return prefs.getString('patientId') ?? '';
-  }
-
-  Future<String?> getDeviceToken() async {
-    try {
-      return await FirebaseMessaging.instance.getToken();
-    } catch (e) {
-      print("Error getting Firebase device token: $e");
-      return null;
-    }
-  }
-
-  Future<void> fetchPatientName() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getString('patientId') ?? '';
-      if (patientId.isEmpty) {
-        setState(() => patientName = 'غير معروف');
-        return;
-      }
-
-      final snapshot = await FirebaseFirestore.instance.collection('ActivePatient').doc(patientId).get();
-
-      if (snapshot.exists) {
-        final data = snapshot.data();
-        final fullName = data?['patientName'] as String?;
-        if (fullName != null && fullName.isNotEmpty) {
-          setState(() => patientName = fullName.split(' ').first);
-        } else {
-          setState(() => patientName = 'غير معروف');
-        }
-      } else {
-        setState(() => patientName = 'غير موجود');
-      }
-    } catch (e) {
-      setState(() => patientName = 'خطأ في التحميل');
-      print('Error fetching patient name: $e');
-    }
-  }
-
-  // ============================
-  // fetchScheduledMedicines
-  // ============================
-  Future<List<Map<String, dynamic>>> fetchScheduledMedicines() async {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String patientId = prefs.getString('patientId') ?? '';
-    DateTime now = DateTime.now();
-
-    List<Map<String, dynamic>> scheduledMedicines = [];
-
-    if (patientId.isEmpty) return scheduledMedicines;
-
-    final QuerySnapshot patientMedicineSnapshot = await FirebaseFirestore.instance
+    FirebaseFirestore.instance
         .collection('ActivePatient')
-        .doc(patientId)
+        .doc(_patientId)
+        .get()
+        .then((doc) {
+      final full = '${doc.data()?['patientName'] ?? ''}'.trim();
+      if (mounted && full.isNotEmpty) {
+        setState(() => _firstName = full.split(' ').first);
+      }
+    }).catchError((_) {});
+
+    _medsSub = FirebaseFirestore.instance
+        .collection('ActivePatient')
+        .doc(_patientId)
         .collection('PatientMedicine')
-        .get();
+        .snapshots()
+        .listen((_) {
+      refreshLocalReminders(); // medicines changed -> new reminders
+      _reload(silent: true);
+    }, onError: (e) => debugPrint('medicines listener: $e'));
 
-    for (var medicineDoc in patientMedicineSnapshot.docs) {
-      final medicineData = medicineDoc.data() as Map<String, dynamic>;
+    _logsSub = FirebaseFirestore.instance
+        .collectionGroup('MedicineIntakeLogs')
+        .where('takenBy', isEqualTo: _patientId)
+        .snapshots()
+        .listen((_) => _reload(silent: true),
+            onError: (e) => debugPrint('logs listener: $e'));
 
-      if (medicineData['StartDate'] == null ||
-          medicineData['EndDate'] == null ||
-          (medicineData['nowTime'] == null && medicineData['MedicineTime'] == null)) {
-        continue;
-      }
-
-      final List<dynamic> nowTimes = medicineData['nowTime'] ?? medicineData['MedicineTime'] ?? [];
-
-      DateTime startDate = ((medicineData['StartDate'] as Timestamp?)?.toDate()) ?? DateTime.now();
-      DateTime endDate = ((medicineData['EndDate'] as Timestamp?)?.toDate()) ?? DateTime.now();
-
-      if (now.isAfter(startDate.subtract(const Duration(days: 1))) &&
-          now.isBefore(endDate.add(const Duration(days: 1)))) {
-        for (var timeNow in nowTimes) {
-          try {
-            final parsedTime = DateFormat("HH:mm").parse(timeNow);
-            final medicineDateTime = DateTime(now.year, now.month, now.day, parsedTime.hour, parsedTime.minute);
-
-            final endTime = medicineDateTime.add(const Duration(hours: 3));
-            final intakeLogDocId = '${medicineDoc.id}_${medicineDateTime.millisecondsSinceEpoch}';
-
-            final intakeLogsRef = FirebaseFirestore.instance
-                .collection('ActivePatient')
-                .doc(patientId)
-                .collection('PatientMedicine')
-                .doc(medicineDoc.id)
-                .collection('MedicineIntakeLogs')
-                .doc(intakeLogDocId);
-
-            final intakeLogSnapshot = await intakeLogsRef.get();
-            final intakeLogData = intakeLogSnapshot.data() as Map<String, dynamic>?;
-
-            if (now.isAfter(medicineDateTime.subtract(const Duration(minutes: 1))) &&
-                now.isBefore(endTime)) {
-              if (!intakeLogSnapshot.exists || !(intakeLogData?['taken'] == true)) {
-                scheduledMedicines.add(Map<String, dynamic>.from(medicineData)
-                  ..['scheduledTime'] = medicineDateTime
-                  ..['medicineId'] = medicineDoc.id
-                  ..['intakeLogDocId'] = intakeLogDocId);
-              }
-            }
-          } catch (e) {
-            print('Error parsing time: $timeNow - $e');
-            continue;
-          }
-        }
-      }
-    }
-
-    scheduledMedicines.sort((a, b) => (a['scheduledTime'] as DateTime).compareTo(b['scheduledTime'] as DateTime));
-    return scheduledMedicines;
+    await _reload();
   }
 
-  // ============================
-  // Confirm action from UI
-  // ============================
-  Future<void> _confirmFromUI(Map<String, dynamic> med, String intakeLogDocId) async {
-    setState(() => _isConfirming = true);
-
-    final medicineId = med['medicineId'];
-    final scheduledTime = med['scheduledTime'] as DateTime;
-
-    if (medicineId != null && intakeLogDocId.isNotEmpty) {
-      final now = DateTime.now();
-      final patientId = await getPatientId();
-
-      if (patientId.isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('خطأ: معرف المريض غير موجود')));
-        setState(() => _isConfirming = false);
-        return;
-      }
-
-      final intakeLogsRef = FirebaseFirestore.instance
-          .collection('ActivePatient')
-          .doc(patientId)
-          .collection('PatientMedicine')
-          .doc(medicineId)
-          .collection('MedicineIntakeLogs')
-          .doc(intakeLogDocId);
-
-      await intakeLogsRef.set({
-        'scheduledTime': Timestamp.fromDate(scheduledTime),
-        'takenAt': Timestamp.fromDate(now),
-        'takenBy': patientId,
-        'taken': true,
-        'missedReason': FieldValue.delete(),
-      }, SetOptions(merge: true));
-
-      setState(() {
-        _medicinesFuture = fetchScheduledMedicines();
-        _refreshTakenAndTotals();
-      });
-
+  Future<void> _reload({bool silent = false}) async {
+    if (_patientId.isEmpty) return;
+    if (!silent && mounted) setState(() => _loading = true);
+    try {
+      final results = await Future.wait([
+        DoseService.loadToday(_patientId),
+        DoseService.loadProgress(_patientId),
+      ]);
       if (!mounted) return;
-      await showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('تم التأكيد'),
-          content: const Text('شكراً — تم تسجيل أخذ دوائك.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('حسناً')),
-          ],
-        ),
+      setState(() {
+        _schedule = results[0] as TodaySchedule;
+        _progress = results[1] as ProgressStats;
+        _loading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _error = '$e';
+      });
+    }
+  }
+
+  Future<void> _confirm(DoseItem dose) async {
+    final key = '${dose.medicineId}_${dose.scheduled.millisecondsSinceEpoch}';
+    setState(() => _saving.add(key));
+    String msg;
+    try {
+      msg = await LocalReminders.recordTaken(
+        patientId: _patientId,
+        medicineId: dose.medicineId,
+        scheduled: dose.scheduled,
+        source: 'app',
       );
+    } catch (e) {
+      msg = tr(context, 'تعذّر حفظ الجرعة، يرجى المحاولة مرة أخرى.',
+          'Could not save the dose. Please try again.', listen: false);
+    }
+    if (!mounted) return;
+    setState(() => _saving.remove(key));
+    final ok = msg.startsWith('تم');
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      backgroundColor: ok ? AppColors.success : AppColors.danger,
+      content: Text(ok
+          ? tr(context, 'تم تسجيل الجرعة، شكرًا لالتزامك.',
+              'Dose recorded. Thank you!', listen: false)
+          : msg),
+    ));
+    calculateAndSaveDailyPerformance();
+    _reload(silent: true);
+  }
+
+  // ---------------------------------------------------------------- text
+
+  String _time(DateTime t) {
+    final ar = isArabic(context);
+    final s = DateFormat('h:mm', 'en').format(t);
+    final ampm = t.hour < 12 ? (ar ? 'ص' : 'AM') : (ar ? 'م' : 'PM');
+    return '$s $ampm';
+  }
+
+  String _duration(Duration d) {
+    final h = d.inHours;
+    final m = d.inMinutes % 60;
+    if (!isArabic(context)) {
+      final parts = [if (h > 0) '${h}h', if (m > 0) '${m}m'];
+      return parts.isEmpty ? 'less than a minute' : parts.join(' ');
+    }
+    String hours;
+    if (h == 0) {
+      hours = '';
+    } else if (h == 1) {
+      hours = 'ساعة';
+    } else if (h == 2) {
+      hours = 'ساعتان';
+    } else if (h <= 10) {
+      hours = '$h ساعات';
     } else {
-      print('خطأ: معرف الدواء أو معرف السجل غير صالح.');
+      hours = '$h ساعة';
     }
-
-    setState(() => _isConfirming = false);
+    String mins;
+    if (m == 0) {
+      mins = '';
+    } else if (m == 1) {
+      mins = 'دقيقة';
+    } else if (m == 2) {
+      mins = 'دقيقتان';
+    } else if (m <= 10) {
+      mins = '$m دقائق';
+    } else {
+      mins = '$m دقيقة';
+    }
+    final parts = [hours, mins].where((p) => p.isNotEmpty).toList();
+    return parts.isEmpty ? 'أقل من دقيقة' : parts.join(' و');
   }
 
-  // ============================
-  // Taken today and totals
-  // ============================
-  Future<List<Map<String, dynamic>>> fetchTodayTakenMedicines() async {
-    final prefs = await SharedPreferences.getInstance();
-    final patientId = prefs.getString('patientId') ?? '';
-    if (patientId.isEmpty) return [];
+  // ---------------------------------------------------------------- build
 
-    final List<Map<String, dynamic>> taken = [];
-    final firestore = FirebaseFirestore.instance;
-
-    final patientMedicineSnapshot = await firestore
-        .collection('ActivePatient')
-        .doc(patientId)
-        .collection('PatientMedicine')
-        .get();
-
-    final now = DateTime.now();
-    final startOfDay = DateTime(now.year, now.month, now.day);
-    final endOfDay = startOfDay.add(const Duration(days: 1));
-
-    for (final medDoc in patientMedicineSnapshot.docs) {
-      final medId = medDoc.id;
-      final medData = medDoc.data() as Map<String, dynamic>? ?? {};
-
-      final logsSnapshot = await firestore
-          .collection('ActivePatient')
-          .doc(patientId)
-          .collection('PatientMedicine')
-          .doc(medId)
-          .collection('MedicineIntakeLogs')
-          .where('taken', isEqualTo: true)
-          .get();
-
-      for (final logDoc in logsSnapshot.docs) {
-        final log = logDoc.data();
-        DateTime? takenAt;
-        if (log['takenAt'] is Timestamp) {
-          takenAt = (log['takenAt'] as Timestamp).toDate();
-        } else if (log['takenAt'] is String) {
-          takenAt = DateTime.tryParse(log['takenAt']);
-        }
-        DateTime? scheduledTime;
-        if (log['scheduledTime'] is Timestamp) {
-          scheduledTime = (log['scheduledTime'] as Timestamp).toDate();
-        } else if (log['scheduledTime'] is String) {
-          scheduledTime = DateTime.tryParse(log['scheduledTime']);
-        }
-
-        final checkTime = takenAt ?? scheduledTime;
-        if (checkTime != null && !checkTime.isBefore(startOfDay) && checkTime.isBefore(endOfDay)) {
-          taken.add({
-            'medicineId': medId,
-            'medicineName': medData['MedicineName'] ?? 'دواء',
-            'takenAt': takenAt,
-            'scheduledTime': scheduledTime,
-            'intakeLogDocId': logDoc.id,
-          });
-        }
-      }
-    }
-
-    taken.sort((a, b) {
-      final da = a['takenAt'] as DateTime? ?? a['scheduledTime'] as DateTime? ?? DateTime.fromMillisecondsSinceEpoch(0);
-      final db = b['takenAt'] as DateTime? ?? b['scheduledTime'] as DateTime? ?? DateTime.fromMillisecondsSinceEpoch(0);
-      return da.compareTo(db);
-    });
-
-    return taken;
-  }
-
-  Future<Map<String, int>> computeTodayTotals() async {
-    final prefs = await SharedPreferences.getInstance();
-    final patientId = prefs.getString('patientId') ?? '';
-    if (patientId.isEmpty) return {'totalScheduled': 0, 'takenCount': 0};
-
-    final firestore = FirebaseFirestore.instance;
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    int totalScheduled = 0;
-
-    final patientMedicineSnapshot = await firestore
-        .collection('ActivePatient')
-        .doc(patientId)
-        .collection('PatientMedicine')
-        .get();
-
-    for (final medDoc in patientMedicineSnapshot.docs) {
-      final medData = medDoc.data() as Map<String, dynamic>? ?? {};
-      final List<dynamic>? times = medData['MedicineTime'] ?? medData['nowTime'];
-      final Timestamp? startTs = medData['StartDate'];
-      final Timestamp? endTs = medData['EndDate'];
-      if (times == null || startTs == null || endTs == null) continue;
-
-      final DateTime startDate = (startTs as Timestamp).toDate();
-      final DateTime endDate = (endTs as Timestamp).toDate();
-      final DateTime startDay = DateTime(startDate.year, startDate.month, startDate.day);
-      final DateTime endDay = DateTime(endDate.year, endDate.month, endDate.day);
-
-      if (!todayStart.isBefore(startDay) && !todayStart.isAfter(endDay) ||
-          (!todayStart.isBefore(startDay) && !todayStart.isAfter(endDay))) {
-        totalScheduled += times.length;
-      } else {
-        if (!todayStart.isBefore(startDay) && !todayStart.isAfter(endDay)) {
-          totalScheduled += times.length;
-        }
-      }
-    }
-
-    final takenList = await fetchTodayTakenMedicines();
-    final takenCount = takenList.length;
-
-    return {'totalScheduled': totalScheduled, 'takenCount': takenCount};
-  }
-
-  // ============================
-  // UI build
-  // ============================
   @override
   Widget build(BuildContext context) {
-    final currentLanguage = Provider.of<LocaleProvider>(context).currentLanguage;
-    final texts = {
-      'en': {
-        'welcome': 'Welcome',
-        'to_take': 'Medicines for Today',
-        'confirm': 'Confirm',
-        'today_progress': "Today's Progress",
-        'no_meds': 'No medicines currently',
-        'no_taken': 'No doses taken today yet',
-      },
-      'ar': {
-        'welcome': 'أهلاً وسهلاً',
-        'to_take': 'الأدوية الخاصة بك لهذا اليوم',
-        'confirm': 'تأكيد',
-        'today_progress': 'تقدّم اليوم',
-        'no_meds': 'لا توجد أدوية حالياً',
-        'no_taken': 'لم يتم أخذ أي جرعات اليوم بعد',
-      },
-    }[currentLanguage]!;
-
-    final currentDate = DateTime.now();
-    final dates = List.generate(5, (index) => currentDate.add(Duration(days: index - 2)));
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final screenHeight = MediaQuery.of(context).size.height;
-
+    final s = _schedule;
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        child: Column(children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(texts['welcome']!, style: TextStyle(fontSize: screenHeight * 0.02, fontWeight: FontWeight.bold)),
-                const SizedBox(height: 4),
-                Text(patientName, style: TextStyle(fontSize: screenHeight * 0.018, color: Colors.grey)),
-              ]),
-            ]),
-          ),
-
-          // Month Title
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text('${DateFormat.MMMM(currentLanguage == 'ar' ? 'ar' : 'en').format(currentDate)} ${currentDate.year}',
-                  style: TextStyle(fontSize: screenHeight * 0.02, fontWeight: FontWeight.bold, color: const Color(0xFF6A1BE9))),
+      body: RefreshIndicator(
+        color: AppColors.primary,
+        onRefresh: () => _reload(silent: true),
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            _header(),
+            Transform.translate(
+              offset: const Offset(0, -44),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: _summaryCard(),
+              ),
             ),
+            if (_loading && s == null)
+              const Padding(
+                padding: EdgeInsets.all(40),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (_error != null && s == null)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  tr(context, 'تعذّر تحميل البيانات. اسحب الشاشة للأسفل لإعادة المحاولة.',
+                      'Could not load data. Pull down to try again.'),
+                  textAlign: TextAlign.center,
+                ),
+              )
+            else if (s != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (s.due.isNotEmpty) ...[
+                      SectionTitle(tr(context, 'حان موعد الجرعة الآن', 'Due now')),
+                      for (final d in s.due) ...[
+                        _dueCard(d),
+                        const SizedBox(height: 12),
+                      ],
+                      const SizedBox(height: 12),
+                    ],
+                    SectionTitle(
+                      tr(context, 'جدول اليوم', "Today's schedule"),
+                      trailing: tr(context, '${s.today.length} جرعات',
+                          '${s.today.length} doses'),
+                    ),
+                    if (s.today.isEmpty)
+                      AppCard(
+                        child: Text(
+                          tr(context, 'لا توجد جرعات مجدولة اليوم.',
+                              'No doses scheduled today.'),
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                      )
+                    else
+                      AppCard(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < s.today.length; i++)
+                              _timelineRow(s.today[i], last: i == s.today.length - 1),
+                          ],
+                        ),
+                      ),
+                    if (s.yesterdayMissed.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      for (final d in s.yesterdayMissed) ...[
+                        _missedYesterday(d),
+                        const SizedBox(height: 8),
+                      ],
+                    ],
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _header() {
+    final now = DateTime.now();
+    final ar = isArabic(context);
+    final date = DateFormat(ar ? 'EEEE، d MMMM' : 'EEEE, d MMMM', ar ? 'ar' : 'en')
+        .format(now);
+    final greeting = now.hour < 12
+        ? tr(context, 'صباح الخير', 'Good morning')
+        : tr(context, 'مساء الخير', 'Good evening');
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.primary,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      padding: EdgeInsets.fromLTRB(
+          20, MediaQuery.of(context).padding.top + 20, 20, 64),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(date,
+              style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 14)),
+          const SizedBox(height: 2),
+          Text(
+            _firstName.isEmpty ? greeting : '$greeting، $_firstName',
+            style: const TextStyle(
+                color: Colors.white, fontSize: 24, fontWeight: FontWeight.w700),
           ),
+        ],
+      ),
+    );
+  }
 
-          const SizedBox(height: 12),
-
-          // Dates strip
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(children: dates.map((date) {
-              final isToday = date.day == currentDate.day;
-              return Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                child: Column(children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
-                    decoration: isToday
-                        ? BoxDecoration(color: const Color(0xFF6A1BE9), borderRadius: BorderRadius.circular(10))
-                        : null,
-                    child: Column(children: [
-                      Text('${date.day}', style: TextStyle(color: isToday ? Colors.white : const Color(0xFF6A1BE9), fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 6),
-                      Text(DateFormat('EEE', currentLanguage == 'ar' ? 'ar' : 'en').format(date), style: TextStyle(color: isToday ? Colors.white : const Color(0xFF6A1BE9))),
-                    ]),
-                  )
-                ]),
-              );
-            }).toList()),
-          ),
-
-          const SizedBox(height: 12),
-
-          // Purple area
-          Expanded(
-            child: Container(
-              width: screenWidth,
-              decoration: const BoxDecoration(color: Color(0xFF6A1BE9), borderRadius: BorderRadius.only(topLeft: Radius.circular(16), topRight: Radius.circular(16))),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Padding(padding: const EdgeInsets.all(16.0), child: Text(texts['to_take']!, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: screenHeight * 0.02))),
-
-                // Scheduled meds list
-                Expanded(
-                  flex: 2,
-                  child: FutureBuilder<List<Map<String, dynamic>>>(
-                    future: _medicinesFuture,
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator(color: Colors.white));
-                      if (snapshot.hasError) return Center(child: Text('خطأ أثناء جلب الأدوية', style: TextStyle(color: Colors.white)));
-                      final meds = snapshot.data ?? [];
-                      if (meds.isEmpty) return Center(child: Text(texts['no_meds']!, style: const TextStyle(color: Colors.white)));
-
-                      return ListView.builder(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: meds.length,
-                        itemBuilder: (context, index) {
-                          final med = meds[index];
-                          final name = med['MedicineName'] ?? 'اسم الدواء غير معروف';
-                          final scheduledTime = med['scheduledTime'] as DateTime;
-                          final dosage = med['MedicineDosage'] ?? 'غير محدد';
-                          final condition = med['Medication Instructions'] ?? 'غير محدد';
-                          final pillsPerDose = med['NumberOfPillsPerDose']?.toString() ?? 'غير محدد';
-                          final timeFormat = DateFormat('h:mm a', 'en_US').format(scheduledTime);
-                          final displayTime = timeFormat.replaceAll('AM', 'صباحاً').replaceAll('PM', 'مساءً');
-
-                          return Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                            child: Card(
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              color: Colors.white.withOpacity(0.95),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  Text(name, style: const TextStyle(color: Color(0xFF6A1BE9), fontSize: 18, fontWeight: FontWeight.bold)),
-                                  const SizedBox(height: 8),
-                                  Text('الوقت: $displayTime', style: const TextStyle(color: Colors.black87)),
-                                  const SizedBox(height: 6),
-                                  Text('الجرعة: $dosage', style: const TextStyle(color: Colors.black87)),
-                                  Text('عدد الحبوب: $pillsPerDose', style: const TextStyle(color: Colors.black87)),
-                                  Text('تعليمات: $condition', style: const TextStyle(color: Colors.black87)),
-                                  const SizedBox(height: 12),
-                                  Row(children: [
-                                    Expanded(
-                                      child: ElevatedButton(
-                                        onPressed: _isConfirming
-                                            ? null
-                                            : () async {
-                                                setState(() => _isConfirming = true);
-                                                final intakeLogDocId = med['intakeLogDocId'] as String;
-                                                await _confirmFromUI(med, intakeLogDocId);
-                                                setState(() => _isConfirming = false);
-                                              },
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.green.shade600,
-                                          foregroundColor: Colors.white,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                          padding: const EdgeInsets.symmetric(vertical: 12),
-                                        ),
-                                        child: Text(texts['confirm']!),
-                                      ),
-                                    ),
-                                  ]),
-                                ]),
-                              ),
-                            ),
-                          );
-                        },
-                      );
-                    },
+  Widget _summaryCard() {
+    final s = _schedule;
+    final total = s?.today.length ?? 0;
+    final taken = s?.takenCount ?? 0;
+    final remaining = s?.remainingCount ?? 0;
+    final streak = _progress?.currentStreak ?? 0;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+              color: const Color(0xFF0F2A3A).withOpacity(0.08),
+              blurRadius: 20,
+              offset: const Offset(0, 6)),
+        ],
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 76,
+            height: 76,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  width: 76,
+                  height: 76,
+                  child: CircularProgressIndicator(
+                    value: total == 0 ? 0 : taken / total,
+                    strokeWidth: 8,
+                    backgroundColor: AppColors.grey,
+                    color: AppColors.primary,
                   ),
                 ),
-
-                const SizedBox(height: 8),
-
-                // Today's progress header + totals
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                    Text(texts['today_progress']!, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                    FutureBuilder<Map<String, int>>(
-                      future: _todayTotalsFuture,
-                      builder: (context, snap) {
-                        if (!snap.hasData) return const SizedBox.shrink();
-                        final totals = snap.data!;
-                        final total = totals['totalScheduled'] ?? 0;
-                        final taken = totals['takenCount'] ?? 0;
-                        final percent = total > 0 ? ((taken / total) * 100).round() : 0;
-                        return Text('$taken / $total  •  $percent%', style: const TextStyle(color: Colors.white));
-                      },
-                    ),
-                  ]),
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('$taken/$total',
+                        style: const TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w700)),
+                    Text(tr(context, 'جرعات', 'doses'),
+                        style: const TextStyle(
+                            fontSize: 11, color: AppColors.textMuted)),
+                  ],
                 ),
-
-                // Taken list (white card area)
-                Expanded(
-                  flex: 1,
-                  child: Container(
-                    decoration: const BoxDecoration(color: Colors.white, borderRadius: BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12))),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: FutureBuilder<List<Map<String, dynamic>>>(
-                        future: _takenTodayFuture,
-                        builder: (context, snapshot) {
-                          if (snapshot.connectionState == ConnectionState.waiting) return const Center(child: CircularProgressIndicator());
-                          if (snapshot.hasError) return const Center(child: Text('خطأ أثناء جلب بيانات التقدّم'));
-                          final taken = snapshot.data ?? [];
-                          if (taken.isEmpty) return Center(child: Text(texts['no_taken']!, style: TextStyle(color: Colors.grey.shade700)));
-
-                          return ListView.separated(
-                            itemCount: taken.length,
-                            separatorBuilder: (_, __) => const Divider(),
-                            itemBuilder: (context, idx) {
-                              final item = taken[idx];
-                              final medName = item['medicineName'] ?? 'دواء';
-                              final takenAt = item['takenAt'] as DateTime?;
-                              final scheduledTime = item['scheduledTime'] as DateTime?;
-                              final displayTime = (takenAt ?? scheduledTime)?.toLocal();
-                              final timeStr = displayTime != null ? DateFormat('h:mm a').format(displayTime).replaceAll('AM', 'صباحاً').replaceAll('PM', 'مساءً') : '';
-
-                              return ListTile(
-                                leading: CircleAvatar(backgroundColor: Colors.green.shade400, child: const Icon(Icons.check, color: Colors.white)),
-                                title: Text(medName, style: const TextStyle(fontWeight: FontWeight.bold)),
-                                subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                  if (timeStr.isNotEmpty) Text('الوقت: $timeStr'),
-                                  const SizedBox(height: 4),
-                                  const Text('عمل ممتاز! شكرًا لالتزامك.'),
-                                ]),
-                                trailing: IconButton(
-                                  icon: const Icon(Icons.info_outline, color: Colors.grey),
-                                  onPressed: () {
-                                    showModalBottomSheet(
-                                      context: context,
-                                      builder: (ctx) {
-                                        return Padding(
-                                          padding: const EdgeInsets.all(16.0),
-                                          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                                            Text(medName, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                                            const SizedBox(height: 8),
-                                            if (timeStr.isNotEmpty) Text('تم أخذه عند: $timeStr'),
-                                            const SizedBox(height: 8),
-                                            const Text('تم تسجيل أخذ الدواء في السجل. شكرًا لك!'),
-                                            const SizedBox(height: 12),
-                                            ElevatedButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('حسناً')),
-                                          ]),
-                                        );
-                                      },
-                                    );
-                                  },
-                                ),
-                              );
-                            },
-                          );
-                        },
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tr(context, 'تقدّم اليوم', "Today's progress"),
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 6),
+                if (streak > 0)
+                  Row(children: [
+                    const Icon(Icons.local_fire_department_outlined,
+                        size: 18, color: AppColors.warning),
+                    const SizedBox(width: 4),
+                    Flexible(
+                      child: Text(
+                        tr(context, '$streak ${streak == 1 ? 'يوم' : streak == 2 ? 'يومان' : streak <= 10 ? 'أيام' : 'يومًا'} التزام متتالية',
+                            '$streak-day streak'),
+                        style: const TextStyle(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14),
                       ),
                     ),
-                  ),
+                  ]),
+                const SizedBox(height: 4),
+                Text(
+                  total == 0
+                      ? tr(context, 'لا توجد جرعات اليوم', 'No doses today')
+                      : remaining == 0
+                          ? tr(context, 'أحسنت، أكملت جرعات اليوم', 'Well done, all done for today')
+                          : tr(context,
+                              'تبقّت $remaining ${remaining == 1 ? 'جرعة' : remaining == 2 ? 'جرعتان' : 'جرعات'} اليوم – أنت على الطريق الصحيح',
+                              '$remaining doses left today – keep going'),
+                  style: const TextStyle(fontSize: 13, color: AppColors.textMuted),
                 ),
-              ]),
+              ],
             ),
           ),
-        ]),
+        ],
+      ),
+    );
+  }
+
+  Widget _pillImage(DoseItem d, {double size = 64}) {
+    final placeholder = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: AppColors.primaryTint,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(Icons.medication_outlined,
+          color: AppColors.primary, size: size * 0.5),
+    );
+    if (d.imageUrl == null) return placeholder;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.network(
+        d.imageUrl!,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => placeholder,
+      ),
+    );
+  }
+
+  Widget _dueCard(DoseItem d) {
+    final key = '${d.medicineId}_${d.scheduled.millisecondsSinceEpoch}';
+    final saving = _saving.contains(key);
+    final left = d.timeLeft;
+    final urgent = left.inMinutes <= 30;
+    final details = [
+      if (d.pills.isNotEmpty) tr(context, 'عدد الحبوب: ${d.pills}', 'Pills: ${d.pills}'),
+      if (d.instructions.isNotEmpty && d.instructions != '__') d.instructions,
+    ].join(' · ');
+    return AppCard(
+      borderColor: AppColors.primary,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              _pillImage(d),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(d.name,
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                    if (d.dosage.isNotEmpty)
+                      Text(tr(context, 'الجرعة: ${d.dosage}', 'Dose: ${d.dosage}'),
+                          style: const TextStyle(fontSize: 14, color: AppColors.textMuted)),
+                    if (details.isNotEmpty)
+                      Text(details,
+                          style: const TextStyle(fontSize: 14, color: AppColors.textMuted)),
+                    Text(tr(context, 'الموعد ${_time(d.scheduled)}', 'At ${_time(d.scheduled)}'),
+                        style: const TextStyle(fontSize: 14, color: AppColors.textMuted)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: urgent ? AppColors.dangerTint : AppColors.warningTint,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.timer_outlined,
+                    size: 18, color: urgent ? AppColors.danger : AppColors.warningText),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    tr(context, 'يتبقّى ${_duration(left)} لتسجيل الجرعة',
+                        '${_duration(left)} left to record this dose'),
+                    style: TextStyle(
+                        color: urgent ? AppColors.danger : AppColors.warningText,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          ElevatedButton.icon(
+            onPressed: saving ? null : () => _confirm(d),
+            icon: saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Icon(Icons.check_rounded, size: 24),
+            label: Text(tr(context, 'أخذت الدواء', 'I took it')),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _timelineRow(DoseItem d, {required bool last}) {
+    late Color bg, fg;
+    late IconData icon;
+    late String status;
+    switch (d.status) {
+      case DoseStatus.taken:
+        bg = AppColors.successTint;
+        fg = AppColors.success;
+        icon = Icons.check_rounded;
+        status = d.takenAt == null
+            ? tr(context, 'تم التسجيل', 'Recorded')
+            : tr(context, 'تم التسجيل ${_time(d.takenAt!)}', 'Recorded ${_time(d.takenAt!)}');
+        break;
+      case DoseStatus.due:
+        bg = AppColors.primary;
+        fg = AppColors.primary;
+        icon = Icons.schedule_rounded;
+        status = tr(context, 'الآن · بانتظار التسجيل', 'Now · waiting');
+        break;
+      case DoseStatus.upcoming:
+        bg = AppColors.grey;
+        fg = AppColors.textMuted;
+        icon = Icons.nightlight_outlined;
+        final until = d.scheduled.difference(DateTime.now());
+        status = tr(context, 'بعد ${_duration(until)} · سيصلك تذكير',
+            'In ${_duration(until)} · you will be reminded');
+        break;
+      case DoseStatus.missed:
+        bg = AppColors.dangerTint;
+        fg = AppColors.danger;
+        icon = Icons.close_rounded;
+        status = tr(context, 'لم تُسجَّل الجرعة – انتهى وقت التسجيل',
+            'Not recorded – time is over');
+        break;
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: last ? null : const Border(bottom: BorderSide(color: AppColors.border)),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 62,
+            child: Text(_time(d.scheduled),
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: d.status == DoseStatus.due ? FontWeight.w700 : FontWeight.w600,
+                    color: d.status == DoseStatus.due ? AppColors.primary : AppColors.textMuted)),
+          ),
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+            child: Icon(icon,
+                size: 18, color: d.status == DoseStatus.due ? Colors.white : fg),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(d.name,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(status,
+                    style: TextStyle(
+                        fontSize: 13,
+                        color: fg,
+                        fontWeight:
+                            d.status == DoseStatus.due ? FontWeight.w600 : FontWeight.w400)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _missedYesterday(DoseItem d) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5B4B4)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(color: AppColors.dangerTint, shape: BoxShape.circle),
+            child: const Icon(Icons.close_rounded, size: 18, color: AppColors.danger),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(tr(context, 'أمس ${_time(d.scheduled)} · ${d.name}',
+                        'Yesterday ${_time(d.scheduled)} · ${d.name}'),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+                Text(tr(context, 'لم تُسجَّل الجرعة – انتهى وقت التسجيل',
+                        'Not recorded – time is over'),
+                    style: const TextStyle(fontSize: 13, color: AppColors.danger)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }

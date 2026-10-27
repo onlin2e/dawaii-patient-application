@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show DateFormat;
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
-import 'package:med_ad_app/provider/local_provider.dart';
 
+import 'package:med_ad_app/theme/app_theme.dart';
+
+/// "أدويتي": the patient's medicines.
 class MyMedScreen extends StatefulWidget {
   const MyMedScreen({super.key});
 
@@ -13,175 +14,182 @@ class MyMedScreen extends StatefulWidget {
 }
 
 class _MyMedScreenState extends State<MyMedScreen> {
-  late String patientId;
-  bool patientIdInitialized = false;
+  String? _patientId;
 
   @override
   void initState() {
     super.initState();
-    _getPatientId();
-  }
-
-  Future<void> _getPatientId() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    patientId = prefs.getString('patientId') ?? '';
-    print('Patient ID: $patientId');
-    setState(() {
-      patientIdInitialized = true;
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) setState(() => _patientId = p.getString('patientId') ?? '');
     });
   }
 
-  String convertUtcToOmanTime(String timeUtc) {
-    final utcTime = DateFormat("HH:mm").parseUtc(timeUtc);
-    final omanTime = utcTime.add(const Duration(hours: 4));
-    return DateFormat("HH:mm").format(omanTime);
+  /// Local times: nowTime, or MedicineTime (UTC) converted.
+  List<String> _times(Map<String, dynamic> d) {
+    final local = d['nowTime'];
+    if (local is List && local.isNotEmpty) {
+      return local.map((e) => e.toString()).toList();
+    }
+    final utc = d['MedicineTime'];
+    if (utc is! List) return const [];
+    final now = DateTime.now();
+    return utc.map((t) {
+      final p = t.toString().split(':');
+      final h = int.tryParse(p.first) ?? 0;
+      final m = p.length > 1 ? int.tryParse(p[1]) ?? 0 : 0;
+      final l = DateTime.utc(now.year, now.month, now.day, h, m).toLocal();
+      return DateFormat('HH:mm').format(l);
+    }).toList();
+  }
+
+  String _ampm(String hhmm) {
+    final p = hhmm.split(':');
+    final h = int.tryParse(p.first) ?? 0;
+    final m = p.length > 1 ? p[1].padLeft(2, '0') : '00';
+    final h12 = h % 12 == 0 ? 12 : h % 12;
+    final suffix = h < 12 ? tr(context, 'ص', 'AM') : tr(context, 'م', 'PM');
+    return '$h12:$m $suffix';
+  }
+
+  bool _isActive(Map<String, dynamic> d) {
+    final end = d['EndDate'];
+    if (end is! Timestamp) return true;
+    final e = end.toDate();
+    final now = DateTime.now();
+    return !DateTime(e.year, e.month, e.day).isBefore(DateTime(now.year, now.month, now.day));
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentLanguage = Provider.of<LocaleProvider>(context).currentLanguage;
-
-    Map<String, Map<String, String>> _localizedTexts = {
-      'en': {
-        'title': 'My Medications',
-        'no_medications': 'No medications available.',
-        'dosage': 'Dosage:',
-        'pills_per_dose': 'Pills per dose:',
-        'medicine_times': 'Medicine times:',
-        'start_date': 'Start date:',
-        'end_date': 'End date:',
-        'condition': 'Medication Instructions:',
-      },
-      'ar': {
-        'title': 'أدويتي',
-        'no_medications': 'لا توجد أدوية متاحة.',
-        'dosage': 'الجرعة:',
-        'pills_per_dose': 'عدد الحبوب لكل جرعة:',
-        'medicine_times': 'اوقات تناول الدواء:',
-        'start_date': 'تاريخ البدء:',
-        'end_date': 'تاريخ الانتهاء:',
-        'condition': 'تعليمات تناول الدواء:',
-      },
-    };
-
-    final texts = _localizedTexts[currentLanguage]!;
-
     return Scaffold(
-      appBar: AppBar(
-        title: Text(texts['title']!),
-        centerTitle: true,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      body: patientIdInitialized
-          ? StreamBuilder<QuerySnapshot>(
+      appBar: AppBar(title: Text(tr(context, 'أدويتي', 'My medicines'))),
+      body: _patientId == null
+          ? const Center(child: CircularProgressIndicator())
+          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('ActivePatient')
-                  .doc(patientId)
+                  .doc(_patientId)
                   .collection('PatientMedicine')
                   .snapshots(),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return Center(child: Text('حدث خطأ: ${snapshot.error}'));
+              builder: (context, snap) {
+                if (snap.hasError) {
+                  return Center(
+                      child: Text(tr(context, 'تعذّر تحميل الأدوية.', 'Could not load medicines.')));
                 }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
+                if (!snap.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
-
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Center(child: Text(texts['no_medications']!));
+                final docs = snap.data!.docs.toList()
+                  ..sort((a, b) {
+                    final aa = _isActive(a.data()) ? 0 : 1;
+                    final bb = _isActive(b.data()) ? 0 : 1;
+                    return aa.compareTo(bb);
+                  });
+                if (docs.isEmpty) {
+                  return Center(
+                      child: Text(tr(context, 'لا توجد أدوية مسجّلة.', 'No medicines yet.'),
+                          style: const TextStyle(color: AppColors.textMuted)));
                 }
-
-                if (snapshot.hasData) {
-                  return ListView.builder(
-                    itemCount: snapshot.data!.docs.length,
-                    itemBuilder: (context, index) {
-                      var doc = snapshot.data!.docs[index];
-                      var medication = doc.data() as Map<String, dynamic>;
-
-                      return Card(
-                        key: Key(doc.id),
-                        margin: const EdgeInsets.all(10),
-                        elevation: 5,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(15),
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(15),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (medication['MedicineImageUrl'] != null)
-                                Image.network(
-                                  medication['MedicineImageUrl'],
-                                  width: 100,
-                                  height: 100,
-                                  fit: BoxFit.cover,
-                                ),
-                              const SizedBox(height: 10),
-                              Text(
-                                medication['MedicineName'] ?? 'اسم الدواء غير معروف',
-                                style: const TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['dosage']} ${medication['MedicineDosage'] ?? 'الجرعة غير معروفة'}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['pills_per_dose']} ${medication['NumberOfPillsPerDose'] ?? 'لا يوجد'}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                            
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['medicine_times']} ${(medication['MedicineTime'] as List<dynamic>?)?.map((time) => convertUtcToOmanTime(time)).join(', ') ?? 'الوقت غير معروف'}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['start_date']} ${DateFormat('yyyy-MM-dd').format((medication['StartDate'] as Timestamp).toDate())}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['end_date']} ${DateFormat('yyyy-MM-dd').format((medication['EndDate'] as Timestamp).toDate())}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '${texts['condition']} ${medication['Medication Instructions'] ?? 'الحالة غير معروفة'}',
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                } else {
-                  return Center(child: Text(texts['no_medications']!));
-                }
+                return ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                  itemCount: docs.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (context, i) => _medicineCard(docs[i].data()),
+                );
               },
-            )
-          : const Center(child: CircularProgressIndicator()),
+            ),
+    );
+  }
+
+  Widget _medicineCard(Map<String, dynamic> d) {
+    final active = _isActive(d);
+    final img = d['MedicineImageUrl'];
+    final start = d['StartDate'];
+    final end = d['EndDate'];
+    final dateFmt = DateFormat('d MMM yyyy', isArabic(context) ? 'ar' : 'en');
+    final instructions = '${d['Medication Instructions'] ?? ''}';
+    final placeholder = Container(
+      width: 64,
+      height: 64,
+      decoration: BoxDecoration(
+          color: AppColors.primaryTint, borderRadius: BorderRadius.circular(16)),
+      child: const Icon(Icons.medication_outlined, color: AppColors.primary, size: 32),
+    );
+
+    Widget info(IconData icon, String label, String value) => Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(icon, size: 18, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text('$label: ', style: const TextStyle(color: AppColors.textMuted, fontSize: 14)),
+            Expanded(
+              child: Text(value,
+                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600)),
+            ),
+          ]),
+        );
+
+    return Opacity(
+      opacity: active ? 1 : 0.6,
+      child: AppCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(children: [
+              img is String && img.isNotEmpty
+                  ? ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Image.network(img,
+                          width: 64,
+                          height: 64,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => placeholder),
+                    )
+                  : placeholder,
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${d['MedicineName'] ?? ''}',
+                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: active ? AppColors.successTint : AppColors.grey,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        active
+                            ? tr(context, 'دواء حالي', 'Current')
+                            : tr(context, 'انتهت مدة الدواء', 'Finished'),
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: active ? AppColors.success : AppColors.textMuted),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            info(Icons.schedule_rounded, tr(context, 'المواعيد', 'Times'),
+                _times(d).map(_ampm).join('، ')),
+            if ('${d['MedicineDosage'] ?? ''}'.isNotEmpty)
+              info(Icons.science_outlined, tr(context, 'الجرعة', 'Dose'), '${d['MedicineDosage']}'),
+            if ('${d['NumberOfPillsPerDose'] ?? ''}'.isNotEmpty)
+              info(Icons.medication_liquid_outlined, tr(context, 'عدد الحبوب', 'Pills'),
+                  '${d['NumberOfPillsPerDose']}'),
+            if (instructions.isNotEmpty && instructions != '__')
+              info(Icons.info_outline, tr(context, 'التعليمات', 'Instructions'), instructions),
+            if (start is Timestamp && end is Timestamp)
+              info(Icons.date_range_outlined, tr(context, 'المدة', 'Period'),
+                  '${dateFmt.format(start.toDate())} – ${dateFmt.format(end.toDate())}'),
+          ],
+        ),
+      ),
     );
   }
 }

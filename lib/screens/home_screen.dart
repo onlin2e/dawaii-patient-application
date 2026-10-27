@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
-import 'package:med_ad_app/provider/local_provider.dart';
+
+import 'package:med_ad_app/main.dart'
+    show calculateAndSaveDailyPerformance, refreshLocalReminders;
+import 'package:med_ad_app/screens/home_screen_content.dart';
 import 'package:med_ad_app/screens/medication_screen.dart';
 import 'package:med_ad_app/screens/notification_screen.dart';
-import 'package:med_ad_app/screens/home_screen_content.dart';
 import 'package:med_ad_app/screens/profile_screen.dart';
 import 'package:med_ad_app/screens/tracker_screen.dart';
-import 'package:provider/provider.dart';
-
+import 'package:med_ad_app/services/device_registration.dart';
+import 'package:med_ad_app/theme/app_theme.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -15,79 +17,66 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
 
-  final List<Widget> _pages = [
+  // Pages keep their state when switching tabs.
+  final List<Widget> _pages = const [
     HomeScreenContent(),
-    NotificationsScreen(),
-    MyMedScreen(),
     MedicineTrackingScreen(),
+    MyMedScreen(),
+    NotificationsScreen(),
     ProfileScreen(),
   ];
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// When the patient comes back to the app: refresh token + "last opened".
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      DeviceRegistration.sync();
+      calculateAndSaveDailyPerformance();
+      refreshLocalReminders();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final currentLanguage = Provider.of<LocaleProvider>(context).currentLanguage;
-
-    Map<String, Map<String, String>> _localizedTexts = {
-      'en': {
-        'home': 'Home',
-        'favorite': 'Notification',
-        'tickets': 'Tracker ',
-        'profile': 'Profile',
-      },
-      'ar': {
-        'home': 'الرئيسية',
-        'favorite': 'الإشعارات',
-        'tickets': 'تتبع',
-        'profile': 'الحساب',
-      },
-    };
-
-    final texts = _localizedTexts[currentLanguage]!;
-
+    final items = [
+      (Icons.home_outlined, Icons.home_rounded, tr(context, 'الرئيسية', 'Home')),
+      (Icons.insights_outlined, Icons.insights_rounded, tr(context, 'تقدّمي', 'Progress')),
+      (Icons.medication_outlined, Icons.medication_rounded, tr(context, 'أدويتي', 'Medicines')),
+      (Icons.notifications_none_rounded, Icons.notifications_rounded,
+          tr(context, 'الإشعارات', 'Alerts')),
+      (Icons.person_outline_rounded, Icons.person_rounded, tr(context, 'حسابي', 'Account')),
+    ];
     return Scaffold(
-      body: _pages[_currentIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (index) {
-          setState(() {
-            _currentIndex = index;
-          });
-        },
+      body: IndexedStack(index: _currentIndex, children: _pages),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _currentIndex,
+        onDestinationSelected: (i) => setState(() => _currentIndex = i),
         backgroundColor: Colors.white,
-        selectedItemColor: const Color.fromARGB(255, 106, 31, 217),
-        unselectedItemColor: Colors.grey,
-        type: BottomNavigationBarType.fixed,
-        items: [
-          BottomNavigationBarItem(
-            icon: Icon(Icons.home),
-            label: texts['home']!,
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.notifications),
-            label: texts['favorite']!,
-          ),
-          BottomNavigationBarItem(
-            icon: Container(
-              padding: EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color.fromARGB(255, 106, 31, 217),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.medication, color: Colors.white),
+        indicatorColor: AppColors.primaryTint,
+        surfaceTintColor: Colors.white,
+        height: 68,
+        destinations: [
+          for (final it in items)
+            NavigationDestination(
+              icon: Icon(it.$1, color: AppColors.textMuted),
+              selectedIcon: Icon(it.$2, color: AppColors.primary),
+              label: it.$3,
             ),
-            label: '',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.calendar_month),
-            label: texts['tickets']!,
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.person),
-            label: texts['profile']!,
-          ),
         ],
       ),
     );

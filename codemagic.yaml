@@ -1,0 +1,57 @@
+# Codemagic – builds the iOS app on a Mac in the cloud and uploads it to
+# App Store Connect (TestFlight). Start it manually from codemagic.io.
+#
+# Before the first build (one time, see the setup guide):
+#   1. Codemagic → Team integrations → Developer Portal: add the App Store
+#      Connect API key and name it exactly:  Dawaii ASC
+#   2. Codemagic → Team settings → codemagic.yaml settings → Code signing
+#      identities: "Fetch" an Apple Distribution certificate + App Store
+#      profile for com.squ.dawaiiapp (needs Push Notifications enabled on
+#      the App ID).
+#   3. Replace APP_STORE_APPLE_ID below with the app's Apple ID (number from
+#      App Store Connect → the app → App Information).
+
+workflows:
+  ios-app-store:
+    name: iOS → TestFlight / App Store
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: Dawaii ASC
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.squ.dawaiiapp
+      vars:
+        APP_STORE_APPLE_ID: 0000000000   # <-- replace with the app's Apple ID
+    scripts:
+      - name: Set up code signing
+        script: xcode-project use-profiles
+      - name: Get Flutter packages
+        script: flutter pub get
+      - name: Install CocoaPods
+        script: |
+          cd ios
+          pod install --repo-update
+      - name: Build IPA
+        script: |
+          # Next build number = latest build on TestFlight + 1 (fallback: pubspec)
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0)
+          PUBSPEC=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          NEXT=$(( LATEST + 1 ))
+          if [ "$PUBSPEC" -gt "$NEXT" ]; then NEXT=$PUBSPEC; fi
+          echo "Using build number $NEXT"
+          flutter build ipa --release \
+            --build-number=$NEXT \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

@@ -1,25 +1,35 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:io' show Platform;
+
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart' show DateFormat;
 import 'package:med_ad_app/provider/local_provider.dart';
 import 'package:med_ad_app/root/app_root.dart';
+import 'package:med_ad_app/services/device_registration.dart';
+import 'package:med_ad_app/services/local_reminders.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'firebase_options.dart';
-import 'package:intl/intl.dart';
 
+import 'firebase_options.dart';
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+
+/// Runs when a push arrives while the app is in the background / closed.
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  // A message WITH a "notification" part is already shown by the system.
+  // Showing it again here produced duplicate notifications on Android.
+  if (message.notification != null) return;
   await setupFlutterNotifications();
   showFlutterNotification(message);
-  print('Handling a background message: ${message.messageId}');
 }
 
 late AndroidNotificationChannel channel;
@@ -27,9 +37,8 @@ bool isFlutterLocalNotificationsInitialized = false;
 late FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin;
 
 Future<void> setupFlutterNotifications() async {
-  if (isFlutterLocalNotificationsInitialized) {
-    return;
-  }
+  if (isFlutterLocalNotificationsInitialized) return;
+
   channel = const AndroidNotificationChannel(
     'high_importance_channel',
     'High Importance Notifications',
@@ -39,11 +48,22 @@ Future<void> setupFlutterNotifications() async {
 
   flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
+  await flutterLocalNotificationsPlugin.initialize(
+    InitializationSettings(
+      android: const AndroidInitializationSettings('@mipmap/ic_launcher'),
+      iOS: LocalReminders.darwinSettings,
+    ),
+    onDidReceiveNotificationResponse: _onNotificationResponse,
+    onDidReceiveBackgroundNotificationResponse: doseActionBackgroundHandler,
+  );
+  await LocalReminders.createAndroidChannel(flutterLocalNotificationsPlugin);
+
   await flutterLocalNotificationsPlugin
       .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>()
       ?.createNotificationChannel(channel);
 
+  // iOS: show pushes as banners even when the app is open.
   await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
     alert: true,
     badge: true,
@@ -52,310 +72,210 @@ Future<void> setupFlutterNotifications() async {
   isFlutterLocalNotificationsInitialized = true;
 }
 
+/// Title / body for a message – also works for data-only messages.
+(String, String)? _textOf(RemoteMessage message) {
+  final n = message.notification;
+  if (n?.title != null || n?.body != null) {
+    return (n?.title ?? 'دوائي', n?.body ?? '');
+  }
+  final d = message.data;
+  if (d['title'] != null || d['body'] != null) {
+    return ('${d['title'] ?? 'دوائي'}', '${d['body'] ?? ''}');
+  }
+  final name = d['medicineName'] ?? 'الدواء';
+  switch (d['source']) {
+    case 'medicine_reminder':
+      return ('تذكير بالدواء', '$name حان موعد أخذ الدواء الآن.');
+    case 'medicine_followup':
+      return ('تذكير متكرر بالدواء', '$name: تذكير إضافي');
+  }
+  return null;
+}
+
+/// Shows a local notification (Android only – iOS shows pushes itself).
 void showFlutterNotification(RemoteMessage message) {
-  RemoteNotification? notification = message.notification;
-  AndroidNotification? android = message.notification?.android;
-
-  String? title = notification?.title;
-  String? body = notification?.body;
-
-  if (title == null && body == null) {
-    title = message.data['title'] ?? 'Med Ad Notification!';
-    body = message.data['body'] ?? 'This notification was created via FCM!';
-  }
-
-  print('[showFlutterNotification] Attempting to show Flutter notification...');
-  print('[showFlutterNotification] Final Title: ${title ?? "No Title"} - Final Body: ${body ?? "No Body"}');
-  print('[showFlutterNotification] Received Android Details: Channel ID: ${android?.channelId}, Icon: ${android?.smallIcon}');
-  print('[showFlutterNotification] Is kIsWeb: $kIsWeb');
-
-  if (title != null && body != null && !kIsWeb) {
-    print('[showFlutterNotification] Conditions met. Displaying notification...');
-    flutterLocalNotificationsPlugin.show(
-      notification?.hashCode ?? 0,
-      title,
-      body,
-      NotificationDetails(
-  android: AndroidNotificationDetails(
-    channel.id,
-    channel.name,
-    channelDescription: channel.description,
-    icon: '@mipmap/ic_launcher',
-    priority: Priority.high,
-  ),
-),
-    );
-    print('[showFlutterNotification] Notification show method called.');
-  } else {
-    print('[showFlutterNotification] Conditions NOT met to show notification:');
-    print('[showFlutterNotification]   Title is null: ${title == null}');
-    print('[showFlutterNotification]   Body is null: ${body == null}');
-    print('[showFlutterNotification]   kIsWeb is true: $kIsWeb');
-  }
+  if (kIsWeb || !Platform.isAndroid) return;
+  final text = _textOf(message);
+  if (text == null) return;
+  flutterLocalNotificationsPlugin.show(
+    message.messageId?.hashCode ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    text.$1,
+    text.$2,
+    NotificationDetails(
+      android: AndroidNotificationDetails(
+        channel.id,
+        channel.name,
+        channelDescription: channel.description,
+        icon: '@mipmap/ic_launcher',
+        importance: Importance.high,
+        priority: Priority.high,
+      ),
+    ),
+  );
 }
 
-int _messageCount = 0;
+/// Shows short messages (e.g. "dose recorded") from anywhere.
+final GlobalKey<ScaffoldMessengerState> appMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
-String constructFCMPayload(String? token) {
-  _messageCount++;
-  return jsonEncode({
-    'token': token,
-    'data': {
-      'via': 'Med Ad App Cloud Messaging!!!',
-      'count': _messageCount.toString(),
-    },
-    'notification': {
-      'title': 'Med Ad Notification!',
-      'body': 'This notification (#$_messageCount) was created via FCM!',
-    },
-  });
-}
-
-class DailyPerformance {
-  int totalScheduled = 0;
-
-  int excellent = 0;
-
-  int poor = 0;
-
-  double dailyPercentage = 0.0;
-
-  DateTime date;
-
-  DailyPerformance({
-    this.totalScheduled = 0,
-    this.excellent = 0,
-    this.poor = 0,
-    this.dailyPercentage = 0.0,
-    required this.date,
-  });
-
-  Map<String, dynamic> toJson() {
-    return {
-      'totalScheduled': totalScheduled,
-      'excellent': excellent,
-      'poor': poor,
-      'dailyPercentage': dailyPercentage,
-      'date': date.toIso8601String(),
-    };
-  }
-
-  factory DailyPerformance.fromJson(Map<String, dynamic> json) {
-    DateTime parsedDate;
-    if (json['date'] is Timestamp) {
-      parsedDate = (json['date'] as Timestamp).toDate();
-    } else if (json['date'] is String) {
-      parsedDate = DateTime.parse(json['date']);
-    } else {
-      parsedDate = DateTime.now();
-    }
-
-    return DailyPerformance(
-      totalScheduled: json['totalScheduled'] ?? 0,
-      excellent: json['excellent'] ?? 0,
-      poor: json['poor'] ?? 0,
-      dailyPercentage: json['dailyPercentage'] ?? 0.0,
-      date: parsedDate,
-    );
-  }
-}
-
-Future<void> _calculateAndSaveDailyPerformance() async {
+/// Tap on a local notification / its button while the app is running
+/// (iOS: also when the button opened the app).
+Future<void> _onNotificationResponse(NotificationResponse response) async {
   try {
-    final SharedPreferences prefs = await SharedPreferences.getInstance();
-    final String? patientId = prefs.getString('patientId');
-    if (patientId == null) {
-      print('Patient ID is null, cannot calculate performance.');
-      return;
-    }
-
-    final FirebaseFirestore firestore = FirebaseFirestore.instance;
-    DateTime today = DateTime.now();
-    DateTime startOfDay = DateTime(today.year, today.month, today.day);
-
-    CollectionReference performanceCollection = firestore
-        .collection('ActivePatient')
-        .doc(patientId)
-        .collection('DailyPerformances');
-
-    DateTime? firstDay;
-
-    QuerySnapshot patientMedicineSnapshot = await firestore
-        .collection('ActivePatient')
-        .doc(patientId)
-        .collection('PatientMedicine')
-        .get();
-
-    if (patientMedicineSnapshot.docs.isNotEmpty) {
-      for (final medicineDoc in patientMedicineSnapshot.docs) {
-        final QuerySnapshot logSnapshot = await firestore
-            .collection('ActivePatient')
-            .doc(patientId)
-            .collection('PatientMedicine')
-            .doc(medicineDoc.id)
-            .collection('MedicineIntakeLogs')
-            .orderBy('scheduledTime', descending: false)
-            .limit(1)
-            .get();
-
-        if (logSnapshot.docs.isNotEmpty) {
-          final Map<String, dynamic>? logData = logSnapshot.docs.first.data() as Map<String, dynamic>?;
-
-          if (logData != null && logData.containsKey('scheduledTime') && logData['scheduledTime'] is Timestamp) {
-            DateTime currentMedicineFirstDay = (logData['scheduledTime'] as Timestamp).toDate();
-            if (firstDay == null || currentMedicineFirstDay.isBefore(firstDay)) {
-              firstDay = currentMedicineFirstDay;
-            }
-          } else {
-             print('DEBUG: logData is null or missing scheduledTime/Timestamp for medicineDoc ID: ${medicineDoc.id}');
-          }
-        }
-      }
-    }
-
-    if (firstDay == null) {
-      print('No medicine intake logs found for patient. Cannot calculate performance. Starting from today.');
-      firstDay = startOfDay;
-    } else {
-      firstDay = DateTime(firstDay.year, firstDay.month, firstDay.day);
-    }
-
-    for (DateTime currentDate = firstDay;
-        !currentDate.isAfter(today);
-        currentDate = currentDate.add(const Duration(days: 1))) {
-      DateTime currentDayStart =
-          DateTime(currentDate.year, currentDate.month, currentDate.day);
-      String currentDayString = DateFormat('yyyy-MM-dd').format(currentDayStart);
-
-      DailyPerformance dailyPerformance = DailyPerformance(date: currentDayStart);
-
-      dailyPerformance.totalScheduled = 0;
-      dailyPerformance.excellent = 0;
-      dailyPerformance.poor = 0;
-
-      for (final medicineDoc in patientMedicineSnapshot.docs) {
-        final Map<String, dynamic>? medicineData = medicineDoc.data() as Map<String, dynamic>?;
-
-        if (medicineData == null) {
-          print('DEBUG: medicineData is null for doc ID: ${medicineDoc.id}. Skipping.');
-          continue;
-        }
-
-        final List<dynamic>? medicineTimes = medicineData['MedicineTime'];
-        final Timestamp? medicineStartDate = medicineData['StartDate'];
-        final Timestamp? medicineEndDate = medicineData['EndDate'];
-
-        if (medicineTimes == null || medicineStartDate == null || medicineEndDate == null) {
-          print('DEBUG: Missing essential medicine data (times/dates) for doc ID: ${medicineDoc.id}. Skipping.');
-          continue;
-        }
-
-        final DateTime medStartDay = DateTime(medicineStartDate.toDate().year, medicineStartDate.toDate().month, medicineStartDate.toDate().day);
-        final DateTime medEndDay = DateTime(medicineEndDate.toDate().year, medicineEndDate.toDate().month, medicineEndDate.toDate().day);
-
-        if (!currentDayStart.isBefore(medStartDay) && !currentDayStart.isAfter(medEndDay)) {
-          for (final time in medicineTimes) {
-            final List<String> parts = time.split(':');
-            final int hour = int.parse(parts[0]);
-            final int minute = int.parse(parts[1]);
-
-            final DateTime scheduledDateTimeForId = DateTime.utc(
-                currentDayStart.year,
-                currentDayStart.month,
-                currentDayStart.day,
-                hour,
-                minute);
-
-            final String intakeLogDocId = '${medicineDoc.id}_${scheduledDateTimeForId.millisecondsSinceEpoch}';
-
-            print('--- Processing for ${DateFormat('yyyy-MM-dd HH:mm').format(scheduledDateTimeForId.toLocal())} (Local Time Display) ---');
-            print('DEBUG: Attempting to fetch log for medicineDoc.id: ${medicineDoc.id}');
-            print('DEBUG: Scheduled Date Time (UTC used for ID): $scheduledDateTimeForId (Epoch: ${scheduledDateTimeForId.millisecondsSinceEpoch})');
-            print('DEBUG: Constructed intakeLogDocId: $intakeLogDocId');
-
-            final DocumentSnapshot intakeLogSnapshot = await firestore
-                .collection('ActivePatient')
-                .doc(patientId)
-                .collection('PatientMedicine')
-                .doc(medicineDoc.id)
-                .collection('MedicineIntakeLogs')
-                .doc(intakeLogDocId)
-                .get();
-
-            dailyPerformance.totalScheduled++; 
-            if (intakeLogSnapshot.exists) {
-                print('DEBUG: Intake log snapshot EXISTS for ID: $intakeLogDocId');
-                final Map<String, dynamic>? logDataFromSnapshot = intakeLogSnapshot.data() as Map<String, dynamic>?;
-
-                if (logDataFromSnapshot != null) {
-                    print('DEBUG: Log data: $logDataFromSnapshot');
-                    if (logDataFromSnapshot['taken'] == true) {
-                        dailyPerformance.excellent++;
-                        print('DEBUG: Dose marked as EXCELLENT (taken: true).');
-                    } else {
-                        dailyPerformance.poor++;
-                        print('DEBUG: Dose marked as POOR (taken: false).');
-                    }
-                } else {
-                    dailyPerformance.poor++;
-                    print('DEBUG: Log data is NULL for existing snapshot. Marked as POOR.');
-                }
-            } else {
-              dailyPerformance.poor++;
-              print('DEBUG: Intake log snapshot DOES NOT EXIST for ID: $intakeLogDocId. Marked as POOR.');
-            }
-          }
-        }
-      }
-
-      dailyPerformance.dailyPercentage = dailyPerformance.totalScheduled > 0
-          ? (dailyPerformance.excellent / dailyPerformance.totalScheduled) * 100
-          : 0.0;
-
-      await performanceCollection
-          .doc(currentDayString)
-          .set(dailyPerformance.toJson(), SetOptions(merge: true));
-
-      print(
-          'Daily performance saved for $currentDayString: ${dailyPerformance.dailyPercentage.toStringAsFixed(2)}%. '
-          'Total Scheduled: ${dailyPerformance.totalScheduled}, Taken: ${dailyPerformance.excellent}, Not Taken: ${dailyPerformance.poor}');
-      print('----------------------------------------------------');
+    final msg = await LocalReminders.handleResponse(response);
+    if (msg != null) {
+      appMessengerKey.currentState
+          ?.showSnackBar(SnackBar(content: Text(msg, textAlign: TextAlign.right)));
+      calculateAndSaveDailyPerformance();
     }
   } catch (e) {
-    print('Error calculating and saving daily performance: $e');
+    debugPrint('Notification response failed: $e');
   }
 }
+
+/// Re-schedules the on-phone dose reminders (safe to call often).
+void refreshLocalReminders() {
+  if (kIsWeb || !isFlutterLocalNotificationsInitialized) return;
+  LocalReminders.requestReschedule(flutterLocalNotificationsPlugin);
+}
+
+// ---------------------------------------------------------------------------
+// Daily performance (shown in the Tracker tab)
+// ---------------------------------------------------------------------------
+
+/// How many past days are recalculated on each app start. Before, EVERY day
+/// since the first log was recalculated with one read per dose, every time
+/// the app opened or a notification arrived (thousands of reads, slow).
+const int _performanceDays = 60;
+
+bool _performanceRunning = false;
+
+/// Recalculates DailyPerformances for the last [_performanceDays] days.
+/// Uses the same dose ids the Home screen writes when the patient confirms:
+/// `<medicineId>_<local scheduled time in ms>` built from `nowTime`.
+Future<void> calculateAndSaveDailyPerformance() async {
+  if (_performanceRunning) return;
+  _performanceRunning = true;
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    final patientId = prefs.getString('patientId');
+    if (patientId == null || patientId.isEmpty) return;
+
+    final db = FirebaseFirestore.instance;
+    final patientRef = db.collection('ActivePatient').doc(patientId);
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final firstDay = today.subtract(const Duration(days: _performanceDays - 1));
+
+    final meds = await patientRef.collection('PatientMedicine').get();
+
+    // day -> [scheduled, taken]
+    final totals = <String, List<int>>{};
+
+    for (final med in meds.docs) {
+      final data = med.data();
+      final start = data['StartDate'];
+      final end = data['EndDate'];
+      if (start is! Timestamp || end is! Timestamp) continue;
+      final List<dynamic> times =
+          (data['nowTime'] as List?) ?? (data['MedicineTime'] as List?) ?? const [];
+      if (times.isEmpty) continue;
+
+      final startDay = DateTime(
+          start.toDate().year, start.toDate().month, start.toDate().day);
+      final endDay =
+          DateTime(end.toDate().year, end.toDate().month, end.toDate().day);
+
+      // all taken logs of this medicine in the window – ONE query
+      final logs = await patientRef
+          .collection('PatientMedicine')
+          .doc(med.id)
+          .collection('MedicineIntakeLogs')
+          .where('scheduledTime',
+              isGreaterThanOrEqualTo: Timestamp.fromDate(firstDay))
+          .get();
+      final takenIds = logs.docs
+          .where((d) => d.data()['taken'] == true)
+          .map((d) => d.id)
+          .toSet();
+
+      for (var day = firstDay;
+          !day.isAfter(today);
+          day = DateTime(day.year, day.month, day.day + 1)) {
+        if (day.isBefore(startDay) || day.isAfter(endDay)) continue;
+        final key = DateFormat('yyyy-MM-dd').format(day);
+        for (final t in times) {
+          final parts = t.toString().split(':');
+          if (parts.length < 2) continue;
+          final h = int.tryParse(parts[0]);
+          final m = int.tryParse(parts[1]);
+          if (h == null || m == null) continue;
+          final at = DateTime(day.year, day.month, day.day, h, m);
+          if (at.isAfter(now)) continue; // not due yet
+          final entry = totals.putIfAbsent(key, () => [0, 0]);
+          entry[0]++;
+          if (takenIds.contains('${med.id}_${at.millisecondsSinceEpoch}')) {
+            entry[1]++;
+          }
+        }
+      }
+    }
+
+    final batch = db.batch();
+    totals.forEach((key, v) {
+      final day = DateTime.parse(key);
+      batch.set(
+        patientRef.collection('DailyPerformances').doc(key),
+        {
+          'totalScheduled': v[0],
+          'excellent': v[1],
+          'poor': v[0] - v[1],
+          'dailyPercentage': v[0] == 0 ? 0.0 : v[1] * 100.0 / v[0],
+          'date': Timestamp.fromDate(day),
+        },
+        SetOptions(merge: true),
+      );
+    });
+    await batch.commit();
+  } catch (e) {
+    debugPrint('Error calculating daily performance: $e');
+  } finally {
+    _performanceRunning = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// main
+// ---------------------------------------------------------------------------
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  FirebaseMessaging messaging = FirebaseMessaging.instance;
 
-  await messaging.requestPermission();
-  String? token = await messaging.getToken();
-  print("Device Token: $token");
+  try {
+    await FirebaseMessaging.instance.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+  } catch (e) {
+    debugPrint('requestPermission failed: $e');
+  }
 
   if (!kIsWeb) {
     await setupFlutterNotifications();
   }
 
+  // Foreground messages: Android does not show them by itself.
   FirebaseMessaging.onMessage.listen((RemoteMessage message) {
     showFlutterNotification(message);
-    _calculateAndSaveDailyPerformance();
+    calculateAndSaveDailyPerformance();
   });
 
   FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
-    print('A new onMessageOpenedApp event was published!');
-    _calculateAndSaveDailyPerformance();
-  });
-
-  _calculateAndSaveDailyPerformance();
-  Timer.periodic(const Duration(days: 1), (timer) {
-    _calculateAndSaveDailyPerformance();
+    calculateAndSaveDailyPerformance();
   });
 
   runApp(
@@ -364,4 +284,25 @@ void main() async {
       child: const AppRoot(),
     ),
   );
+
+  // Not awaited – must never delay the first screen.
+  DeviceRegistration.sync();
+  calculateAndSaveDailyPerformance();
+  refreshLocalReminders();
+
+  // iOS: the "أخذت الدواء" button opened the app from a closed state.
+  if (!kIsWeb) {
+    try {
+      final launch =
+          await flutterLocalNotificationsPlugin.getNotificationAppLaunchDetails();
+      final response = launch?.notificationResponse;
+      if ((launch?.didNotificationLaunchApp ?? false) && response != null) {
+        // wait for the first screen so the message can be shown
+        Future.delayed(const Duration(seconds: 4),
+            () => _onNotificationResponse(response));
+      }
+    } catch (e) {
+      debugPrint('launch details failed: $e');
+    }
+  }
 }

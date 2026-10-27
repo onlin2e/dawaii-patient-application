@@ -97,8 +97,8 @@ class CirclePainter extends CustomPainter {
       ..shader = RadialGradient(
         colors: [
           Color.fromARGB(255, 251, 250, 252).withOpacity(0.1),
-          Color.fromARGB(255, 21, 186, 198).withOpacity(0.3),
-          Color.fromARGB(255, 77, 30, 220).withOpacity(0.3),
+          const Color(0xFF8E7CC9).withOpacity(0.25),
+          const Color(0xFF5B47A6).withOpacity(0.30),
         ],
         stops: [0.4, 0.7, 1.0],
       ).createShader(

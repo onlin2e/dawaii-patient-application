@@ -1,11 +1,14 @@
-import 'package:med_ad_app/screens/aboutus_screen.dart';
-import 'package:flutter/material.dart';
-import 'package:med_ad_app/provider/local_provider.dart';
-import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import 'package:med_ad_app/provider/local_provider.dart';
+import 'package:med_ad_app/screens/aboutus_screen.dart';
+import 'package:med_ad_app/theme/app_theme.dart';
+
+/// "حسابي".
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -14,273 +17,160 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String _patientName = 'Loading...';
-  bool _isLoading = true;
-  String? _errorMessage;
+  String _name = '';
+  String _phone = '';
+  bool _loading = true;
+
+  static const _clinicWhatsApp = '96879335705';
 
   @override
   void initState() {
     super.initState();
-    _loadPatientInfo();
+    _load();
   }
 
-  Future<void> _loadPatientInfo() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final patientId = prefs.getString('patientId');
-      if (patientId != null && patientId.isNotEmpty) {
-        await _fetchPatientName(patientId);
-      } else {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Patient ID not found.';
-          _patientName = 'غير متوفر';
-        });
+      final id = prefs.getString('patientId') ?? '';
+      if (id.isNotEmpty) {
+        final doc =
+            await FirebaseFirestore.instance.collection('ActivePatient').doc(id).get();
+        final d = doc.data() ?? {};
+        _name = '${d['patientName'] ?? ''}';
+        _phone = '${d['patientPhone'] ?? ''}';
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to load patient info: $e';
-        _patientName = 'خطأ في التحميل';
-      });
+      debugPrint('profile load failed: $e');
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _openWhatsApp() async {
+    final text = Uri.encodeComponent('مرحبًا، ');
+    final app = Uri.parse('whatsapp://send?phone=$_clinicWhatsApp&text=$text');
+    final web = Uri.parse('https://wa.me/$_clinicWhatsApp?text=$text');
+    try {
+      if (await canLaunchUrl(app)) {
+        await launchUrl(app, mode: LaunchMode.externalApplication);
+      } else {
+        await launchUrl(web, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: AppColors.danger,
+        content: Text(tr(context, 'تعذّر فتح واتساب. يرجى التأكد من تثبيت التطبيق.',
+            'Could not open WhatsApp.', listen: false)),
+      ));
     }
   }
 
-  Future<void> _fetchPatientName(String patientId) async {
-    try {
-      final snapshot = await FirebaseFirestore.instance
-          .collection('ActivePatient')
-          .where('patientId', isEqualTo: patientId)
-          .get();
-
-      if (snapshot.docs.isNotEmpty) {
-        final patientData = snapshot.docs.first.data();
-        final fullName = patientData['patientName'];
-        if (fullName != null && fullName.isNotEmpty) {
-          setState(() {
-            _patientName = fullName;
-            _isLoading = false;
-          });
-        } else {
-          setState(() {
-            _isLoading = false;
-            _patientName = 'اسم غير متوفر';
-          });
-        }
-      } else {
-        setState(() {
-          _isLoading = false;
-          _patientName = 'مريض غير موجود';
-        
-        });
-      }
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-        _errorMessage = 'Failed to fetch patient name: $e';
-        _patientName = 'خطأ في جلب الاسم';
-      });
-    }
+  void _chooseLanguage() {
+    final provider = Provider.of<LocaleProvider>(context, listen: false);
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (c) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            for (final l in const [('ar', 'العربية'), ('en', 'English')])
+              ListTile(
+                title: Text(l.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
+                trailing: provider.currentLanguage == l.$1
+                    ? const Icon(Icons.check_circle, color: AppColors.primary)
+                    : null,
+                onTap: () {
+                  provider.changeLanguage(l.$1);
+                  Navigator.pop(c);
+                },
+              ),
+          ]),
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final currentLanguage = Provider.of<LocaleProvider>(context).currentLanguage;
-
-    Map<String, Map<String, String>> _localizedTexts = {
-      'en': {
-        'about': 'About App',
-        'whatsapp': 'Contact via WhatsApp',
-        'change_language': 'Change Language',
-      },
-      'ar': {
-        'about': 'عن التطبيق',
-        'whatsapp': 'تواصل عبر الواتساب',
-        'change_language': 'تغيير اللغة',
-      },
-    };
-
-    final texts = _localizedTexts[currentLanguage]!;
-
+    final initial = _name.trim().isEmpty ? '' : _name.trim().characters.first;
     return Scaffold(
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    const Color.fromARGB(255, 106, 31, 217),
-                    const Color.fromARGB(255, 3, 226, 255)
-                  ],
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.only(
-                  bottomLeft: Radius.circular(50),
-                  bottomRight: Radius.circular(50),
-                ),
-              ),
-              height: 250,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Positioned(
-                    top: 80,
-                    child: ClipOval(
-                      child: Image.asset(
-                        "assets/avatar.png",
-                        height: 100,
-                        width: 100,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 200,
-                    child: _isLoading
-                        ? Text(
-                            "جاري التحميل...",
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                              color: const Color.fromARGB(255, 232, 231, 231),
-                            ),
-                          )
-                        : Text(
-                            _patientName,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 18,
-                              color: const Color.fromARGB(255, 232, 231, 231),
-                            ),
-                          ),
-                  ),
-                  if (_errorMessage != null)
-                    Positioned(
-                      bottom: 20,
-                      child: Text(
-                        _errorMessage!,
-                        style: TextStyle(color: Colors.red),
-                      ),
-                    ),
-                ],
-              ),
+      body: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          Container(
+            padding: EdgeInsets.fromLTRB(20, MediaQuery.of(context).padding.top + 28, 20, 28),
+            decoration: const BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
             ),
-            SizedBox(height: 50),
-            Expanded(
-              child: ListView(
-                children: [
-                  _buildListTile(Icons.info_outline, texts['about']!, onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (context) => const AboutusScreen()),
-                    );
-                  }),
-                  _buildListTile(Icons.message, texts['whatsapp']!, onTap: () {
-                    _launchWhatsApp(context); // Pass context to show SnackBar
-                  }),
-                  _buildListTile(Icons.language, texts['change_language']!, onTap: _showLanguageDialog),
-                ],
+            child: Column(children: [
+              CircleAvatar(
+                radius: 42,
+                backgroundColor: Colors.white.withOpacity(0.2),
+                child: initial.isEmpty
+                    ? const Icon(Icons.person_outline, color: Colors.white, size: 40)
+                    : Text(initial,
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 34, fontWeight: FontWeight.w700)),
               ),
+              const SizedBox(height: 12),
+              Text(
+                _loading ? tr(context, 'جارٍ التحميل…', 'Loading…') : _name,
+                style: const TextStyle(
+                    color: Colors.white, fontSize: 20, fontWeight: FontWeight.w700),
+              ),
+              if (_phone.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(_phone,
+                    textDirection: TextDirection.ltr,
+                    style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 14)),
+              ],
+            ]),
+          ),
+          const SizedBox(height: 20),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: AppCard(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(children: [
+                _tile(Icons.chat_outlined, tr(context, 'التواصل مع الصيدلي عبر واتساب', 'Contact the pharmacist on WhatsApp'),
+                    _openWhatsApp),
+                const Divider(height: 1, indent: 16, endIndent: 16, color: AppColors.border),
+                _tile(Icons.language_rounded, tr(context, 'لغة التطبيق', 'App language'), _chooseLanguage,
+                    trailingText: tr(context, 'العربية', 'English')),
+                const Divider(height: 1, indent: 16, endIndent: 16, color: AppColors.border),
+                _tile(Icons.info_outline_rounded, tr(context, 'عن التطبيق', 'About the app'), () {
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const AboutusScreen()));
+                }),
+              ]),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildListTile(IconData icon, String title, {VoidCallback? onTap}) {
-    return Card(
-      elevation: 1,
-      margin: EdgeInsets.symmetric(vertical: 8, horizontal: 15),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+  Widget _tile(IconData icon, String title, VoidCallback onTap, {String? trailingText}) {
+    return ListTile(
+      leading: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+            color: AppColors.primaryTint, borderRadius: BorderRadius.circular(12)),
+        child: Icon(icon, color: AppColors.primary, size: 22),
       ),
-      child: ListTile(
-        leading:
-            Icon(icon, color: const Color.fromARGB(255, 106, 31, 217), size: 28),
-        title: Text(
-          title,
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: const Color.fromARGB(255, 100, 98, 98),
-          ),
-        ),
-        trailing: Icon(
-          Icons.arrow_forward_ios,
-          color: Colors.grey,
-          size: 18,
-        ),
-        onTap: onTap,
-      ),
+      title: Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+        if (trailingText != null)
+          Text(trailingText, style: const TextStyle(color: AppColors.textMuted, fontSize: 13)),
+        const SizedBox(width: 4),
+        const Icon(Icons.chevron_right_rounded, color: AppColors.textMuted),
+      ]),
+      onTap: onTap,
     );
-  }
-
-  void _showLanguageDialog() {
-    showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Choose Language'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                title: Text('English'),
-                onTap: () => _changeLanguage('en'),
-              ),
-              ListTile(
-                title: Text('العربية'),
-                onTap: () => _changeLanguage('ar'),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  void _changeLanguage(String language) {
-    Provider.of<LocaleProvider>(context, listen: false).changeLanguage(language);
-    Navigator.pop(context);
-  }
-
-  Future<void> _launchWhatsApp(BuildContext context) async {
-    final phoneNumber = '96879335705'; 
-    final message = 'مرحبا. ';
-
-
-    final whatsappUrl = Uri.parse('whatsapp://send?phone=$phoneNumber&text=${Uri.encodeComponent(message)}');
-    final webWhatsappUrl = Uri.parse('https://wa.me/$phoneNumber/?text=${Uri.encodeComponent(message)}');
-
-    try {
-      if (await canLaunchUrl(whatsappUrl)) {
-        await launchUrl(whatsappUrl, mode: LaunchMode.externalApplication);
-      } else if (await canLaunchUrl(webWhatsappUrl)) {
-        await launchUrl(webWhatsappUrl, mode: LaunchMode.externalApplication);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تعذر فتح واتساب. يرجى التأكد من تثبيت التطبيق.'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } catch (e) {
-      print('Error launching WhatsApp: $e'); 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('حدث خطأ أثناء محاولة فتح واتساب.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    }
   }
 }
