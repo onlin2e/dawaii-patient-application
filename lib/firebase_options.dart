@@ -60,11 +60,11 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyA3nN4Nq-DnGI6xlhvB8I6Vsn5sp5MKj3o',
-    appId: '1:987116845823:ios:8bdfe709f188a6ccfc6aca',
+    appId: '1:987116845823:ios:04590440ae788e24fc6aca',
     messagingSenderId: '987116845823',
     projectId: 'med-ad',
     storageBucket: 'med-ad.firebasestorage.app',
-    iosBundleId: 'com.squ.dawaiiapp',
+    iosBundleId: 'com.squ.appdawaii',
   );
 
   static const FirebaseOptions macos = FirebaseOptions(
