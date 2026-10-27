@@ -16,7 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// Now: on every app start and whenever FCM rotates the token we write the
 /// current token, plus `lastOpenedAt` so the admin can see who opens the app.
 class DeviceRegistration {
-  static const String appVersion = '1.0.3+19';
+  static const String appVersion = '1.0.7+19';
   static StreamSubscription<String>? _refreshSub;
 
   static Future<String?> _currentToken() async {
